@@ -36,7 +36,14 @@ export const load: PageServerLoad = async ({ params }) => {
 				status: schritt.status,
 				fortschritt: schritt.fortschritt,
 				material: schritt.material,
-				reihenfolge: schritt.reihenfolge
+				reihenfolge: schritt.reihenfolge,
+				bilder: schritt.bilder.map((bild) => ({
+					id: bild.id,
+					url: bild.url,
+					beschreibung: bild.beschreibung,
+					hochgeladenAm: bild.hochgeladenAm.toISOString(),
+					hochgeladenVon: bild.hochgeladenVon
+				}))
 			})),
 			materialListe: project.materialListe,
 			erstelltAm: project.erstelltAm.toISOString(),

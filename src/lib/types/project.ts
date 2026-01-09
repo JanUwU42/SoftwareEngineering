@@ -4,6 +4,21 @@
 export type ProjectStepStatus = 'offen' | 'in_arbeit' | 'fertig';
 
 /**
+ * Bild-Eintrag für Projektschritte
+ */
+export interface ProjectImage {
+	id: string;
+	/** URL oder Pfad zum Bild */
+	url: string;
+	/** Optionale Beschreibung/Alt-Text */
+	beschreibung?: string;
+	/** Wann das Bild hochgeladen wurde */
+	hochgeladenAm: Date;
+	/** Wer das Bild hochgeladen hat (z.B. Handwerker-Name) */
+	hochgeladenVon?: string;
+}
+
+/**
  * Material-Eintrag
  */
 export interface Material {
@@ -31,6 +46,8 @@ export interface ProjectStep {
 	material: Material[];
 	/** Reihenfolge im Zeitstrahl */
 	reihenfolge: number;
+	/** Bilder/Fotos zu diesem Schritt */
+	bilder: ProjectImage[];
 }
 
 /**

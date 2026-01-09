@@ -31,7 +31,14 @@
 			status: schritt.status,
 			fortschritt: schritt.fortschritt,
 			material: schritt.material,
-			reihenfolge: schritt.reihenfolge
+			reihenfolge: schritt.reihenfolge,
+			bilder: schritt.bilder.map((bild) => ({
+				id: bild.id,
+				url: bild.url,
+				beschreibung: bild.beschreibung,
+				hochgeladenAm: new Date(bild.hochgeladenAm),
+				hochgeladenVon: bild.hochgeladenVon
+			}))
 		}))
 	);
 
