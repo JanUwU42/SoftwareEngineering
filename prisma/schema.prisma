@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         String    @default("HANDWERKER")
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+
+  projektId String?
+  projekt   Projekt? @relation(fields: [projektId], references: [id], onDelete: Cascade)
+}
+
+
+
+enum SchrittStatus {
+  offen
+  in_arbeit
+  fertig
+}
+
+model Projekt {
+  id                  String   @id @default(uuid())
+  auftragsnummer      String   @unique
+  kundenname          String
+  projektbezeichnung  String
+  projektbeschreibung String?  @db.Text
+
+  geplanterStart      DateTime
+  geplantesEnde       DateTime
+
+  erstelltAm          DateTime @default(now())
+  aktualisiertAm      DateTime @updatedAt
+
+
+  adresse             Adresse?
+  schritte            Schritt[]
+
+
+  sessions            Session[]
+}
+
+model Adresse {
+  id          String  @id @default(uuid())
+  strasse     String
+  hausnummer  String
+  plz         String
+  ort         String
+
+
+  projektId   String  @unique
+  projekt     Projekt @relation(fields: [projektId], references: [id], onDelete: Cascade)
+}
+
+model Schritt {
+  id           String        @id @default(uuid())
+  titel        String
+  beschreibung String?
+  startDatum   DateTime
+  endDatum     DateTime
+  status       SchrittStatus @default(offen)
+  fortschritt  Int           @default(0)
+  reihenfolge  Int
+
+
+  projektId    String
+  projekt      Projekt       @relation(fields: [projektId], references: [id], onDelete: Cascade)
+
+  materialien  MaterialBedarf[]
+}
+
+model Material {
+  id      String   @id @default(uuid())
+  name    String
+  einheit String   //"m²", "kg", "Stück"
+
+  verwendungen MaterialBedarf[]
+}
+
+model MaterialBedarf {
+  id          String  @id @default(uuid())
+  menge       Float
+  bemerkung   String?
+
+  schrittId   String
+  schritt     Schritt @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+
+  materialId  String
+  material    Material @relation(fields: [materialId], references: [id])
+
+  @@unique([schrittId, materialId])
+}
