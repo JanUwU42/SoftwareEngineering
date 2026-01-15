@@ -15,10 +15,11 @@
 	}
 
 	// Rollen-Checks für die UI
-	// Use $derived to track changes to data
 	const userRole = $derived((data as unknown as { userRole: string }).userRole);
 	const isAdmin = $derived(userRole === 'ADMIN');
 	const isHandwerker = $derived(userRole === 'HANDWERKER');
+	const isInnendienst = $derived(userRole === 'ADMIN' || userRole === 'INNENDIENST');
+	const pendingUpdatesCount = $derived((data as unknown as { pendingUpdatesCount: number }).pendingUpdatesCount || 0);
 </script>
 
 <svelte:head>
@@ -34,16 +35,16 @@
 					<p class="mt-1 text-sm text-gray-500">
 						Willkommen zurück!
 						<span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 ml-2">
-                        {userRole}
-                    </span>
+							{userRole}
+						</span>
 					</p>
 				</div>
 
 				<div>
 					<form action="/?/logout" method="POST">
 						<button
-								type="submit"
-								class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-red-50 hover:text-red-700 transition-colors"
+							type="submit"
+							class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-red-50 hover:text-red-700 transition-colors"
 						>
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1.5">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
@@ -75,8 +76,25 @@
 					</a>
 				{/if}
 
-				<a href="/admin/material" class="group relative flex items-center gap-4 rounded-xl bg-white p-6 shadow-sm hover:shadow-md hover:ring-2 hover:ring-orange-500 transition-all">
-					<div class="flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition-colors">
+				{#if isInnendienst}
+					<a href="/admin/aktualisierungen" class="group relative flex items-center gap-4 rounded-xl bg-white p-6 shadow-sm hover:shadow-md hover:ring-2 hover:ring-orange-500 transition-all">
+						<div class="flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition-colors">
+							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+							</svg>
+						</div>
+						<div class="flex-1">
+							<h3 class="font-semibold text-gray-900">Aktualisierungen</h3>
+							<p class="text-sm text-gray-500">Handwerker-Updates prüfen</p>
+						</div>
+						{#if pendingUpdatesCount > 0}
+							<span class="inline-flex items-center justify-center w-7 h-7 text-sm font-bold text-white bg-orange-500 rounded-full">{pendingUpdatesCount}</span>
+						{/if}
+					</a>
+				{/if}
+
+				<a href="/admin/material" class="group relative flex items-center gap-4 rounded-xl bg-white p-6 shadow-sm hover:shadow-md hover:ring-2 hover:ring-purple-500 transition-all">
+					<div class="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors">
 						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
 							<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
 						</svg>
@@ -129,8 +147,8 @@
 								<p class="text-sm text-gray-500">{project.kundenname}</p>
 							</div>
 							<span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                         {project.auftragsnummer}
-                      </span>
+								{project.auftragsnummer}
+							</span>
 						</div>
 
 						<div class="mb-4 text-sm text-gray-600">
@@ -156,8 +174,8 @@
 							</div>
 							<div class="h-2 w-full overflow-hidden rounded-full bg-gray-200">
 								<div
-										class="h-full bg-blue-500 transition-all duration-300"
-										style="width: {project.fortschritt}%"
+									class="h-full bg-blue-500 transition-all duration-300"
+									style="width: {project.fortschritt}%"
 								></div>
 							</div>
 							<p class="mt-1 text-xs text-gray-500">

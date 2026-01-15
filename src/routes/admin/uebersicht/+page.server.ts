@@ -56,8 +56,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	});
 
+	// 5. Count pending updates for Innendienst/Admin
+	let pendingUpdatesCount = 0;
+	if (userRole === Role.ADMIN || userRole === Role.INNENDIENST) {
+		pendingUpdatesCount = await prisma.handwerkerUpdate.count({
+			where: { status: 'ausstehend' }
+		});
+	}
+
 	return {
 		projects,
-		userRole // Wichtig für das Frontend!
+		userRole,
+		pendingUpdatesCount
 	};
 };

@@ -16,6 +16,8 @@ export interface ProjectImage {
 	hochgeladenAm: Date;
 	/** Wer das Bild hochgeladen hat (z.B. Handwerker-Name) */
 	hochgeladenVon?: string;
+	/** Ob das Bild freigegeben ist */
+	freigegeben?: boolean;
 }
 
 /**
@@ -28,6 +30,37 @@ export interface Material {
 	einheit: string;
 	/** Optional: Bemerkungen zum Material */
 	bemerkung?: string;
+}
+
+/**
+ * Notiz-Eintrag für Projektschritte
+ */
+export interface ProjectNote {
+	id: string;
+	text: string;
+	erstelltAm: string;
+	autorName: string;
+	sichtbarFuerKunde: boolean;
+}
+
+/**
+ * Pending Update von Handwerker
+ */
+export interface PendingUpdate {
+	id: string;
+	typ: 'STATUS_AENDERUNG' | 'FOTO_UPLOAD' | 'NOTIZ';
+	neuerStatus: ProjectStepStatus | null;
+	neuerFortschritt: number | null;
+	notizText: string | null;
+	eingereichtAm: string;
+	bearbeiterName: string;
+	/** ID of the user who submitted this update (for ownership check) */
+	eingereichtVonId: string;
+	bild: {
+		id: string;
+		url: string;
+		beschreibung?: string;
+	} | null;
 }
 
 /**
@@ -48,6 +81,10 @@ export interface ProjectStep {
 	reihenfolge: number;
 	/** Bilder/Fotos zu diesem Schritt */
 	bilder: ProjectImage[];
+	/** Notizen zu diesem Schritt */
+	notizen?: ProjectNote[];
+	/** Ausstehende Updates von Handwerkern */
+	pendingUpdates?: PendingUpdate[];
 }
 
 /**
