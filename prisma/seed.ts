@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import bcrypt from 'bcryptjs';
@@ -44,7 +44,7 @@ async function main() {
         data: {
             email: 'admin@smartbuilders.de',
             passwordHash,
-            role: Role.ADMIN,
+            role: 'ADMIN',
             vorname: 'Chef',
             nachname: 'Chefson',
         }
