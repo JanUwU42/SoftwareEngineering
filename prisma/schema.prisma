@@ -13,6 +13,24 @@ enum Role {
   HANDWERKER
 }
 
+enum SchrittStatus {
+  offen
+  in_arbeit
+  fertig
+}
+
+enum UpdateTyp {
+  STATUS_AENDERUNG
+  FOTO_UPLOAD
+  NOTIZ
+}
+
+enum ApprovalStatus {
+  ausstehend
+  genehmigt
+  abgelehnt
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -24,6 +42,17 @@ model User {
   projekte     Projekt[]
   sessions     Session[]
   passwordResetTokens PasswordResetToken[]
+  
+  // Handwerker updates submitted by this user
+  eingereichteUpdates HandwerkerUpdate[] @relation("SubmittedUpdates")
+  // Updates reviewed by this user (Innendienst/Admin)
+  bearbeiteteUpdates  HandwerkerUpdate[] @relation("ReviewedUpdates")
+  
+  // Notes created by this user
+  notizen      Notiz[]
+  
+  // Audit log entries
+  auditLogs    AuditLog[]
 }
 
 model Session {
@@ -35,13 +64,6 @@ model Session {
 
   projektId String?
   projekt   Projekt? @relation(fields: [projektId], references: [id], onDelete: Cascade)
-}
-
-
-enum SchrittStatus {
-  offen
-  in_arbeit
-  fertig
 }
 
 model Projekt {
@@ -88,10 +110,12 @@ model Schritt {
   projekt      Projekt       @relation(fields: [projektId], references: [id], onDelete: Cascade)
 
   materialien  MaterialBedarf[]
-
   bilder       Bild[]
+  notizen      Notiz[]
+  
+  // Pending updates for this step
+  pendingUpdates HandwerkerUpdate[]
 }
-
 
 model Bild {
   id             String   @id @default(uuid())
@@ -104,6 +128,12 @@ model Bild {
 
   schrittId      String
   schritt        Schritt  @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  
+  // Approval status - photos from Handwerker need approval before customer can see
+  freigegeben    Boolean  @default(true)
+  
+  // Reference to the update if this was uploaded by Handwerker
+  handwerkerUpdate HandwerkerUpdate?
 }
 
 model Material {
@@ -138,4 +168,84 @@ model PasswordResetToken {
 
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Pending updates from Handwerker that need Innendienst approval
+model HandwerkerUpdate {
+  id              String         @id @default(uuid())
+  typ             UpdateTyp
+  
+  // Reference to the step being updated
+  schrittId       String
+  schritt         Schritt        @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  
+  // For status/progress updates - store the proposed new values
+  neuerStatus     SchrittStatus?
+  neuerFortschritt Int?
+  
+  // For notes
+  notizText       String?        @db.Text
+  
+  // For photo uploads - reference to the uploaded image
+  bildId          String?        @unique
+  bild            Bild?          @relation(fields: [bildId], references: [id], onDelete: Cascade)
+  
+  // Who submitted this update
+  eingereichtVon  String
+  bearbeiter      User           @relation("SubmittedUpdates", fields: [eingereichtVon], references: [id])
+  eingereichtAm   DateTime       @default(now())
+  
+  // Approval workflow
+  status          ApprovalStatus @default(ausstehend)
+  bearbeitetVon   String?
+  reviewer        User?          @relation("ReviewedUpdates", fields: [bearbeitetVon], references: [id])
+  bearbeitetAm    DateTime?
+  ablehnungsgrund String?        @db.Text
+}
+
+// Notes/remarks on project steps
+model Notiz {
+  id              String   @id @default(uuid())
+  text            String   @db.Text
+  erstelltAm      DateTime @default(now())
+  aktualisiertAm  DateTime @updatedAt
+  
+  // Author
+  erstelltVon     String
+  autor           User     @relation(fields: [erstelltVon], references: [id])
+  
+  // Which step this note belongs to
+  schrittId       String
+  schritt         Schritt  @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  
+  // Visibility control - notes are internal by default
+  // Only becomes visible to customer after Innendienst approval
+  sichtbarFuerKunde Boolean @default(false)
+}
+
+// Immutable audit log for all changes
+model AuditLog {
+  id          String   @id @default(uuid())
+  
+  // What action was performed
+  aktion      String   // e.g., "STATUS_GEAENDERT", "FOTO_HOCHGELADEN", "NOTIZ_ERSTELLT", "UPDATE_GENEHMIGT"
+  
+  // JSON details with context (old values, new values, etc.)
+  details     String   @db.Text
+  
+  // When this happened
+  zeitpunkt   DateTime @default(now())
+  
+  // Who performed this action
+  userId      String
+  benutzer    User     @relation(fields: [userId], references: [id])
+  
+  // Optional references for context
+  projektId   String?
+  schrittId   String?
+  
+  // This table should never be updated or deleted - audit entries are immutable
+  @@index([projektId])
+  @@index([userId])
+  @@index([zeitpunkt])
 }
