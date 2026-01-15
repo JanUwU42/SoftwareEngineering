@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { PageData } from './$types';
 	import type { ProjectMetadata, ProjectStep, Material } from '$lib/types/project';
 	import ProjectMetadataCard from '$lib/components/ProjectMetadataCard.svelte';
 	import ProjectTimeline from '$lib/components/ProjectTimeline.svelte';
@@ -9,6 +8,8 @@
 			project: any;
 			isStaff: boolean;
 			userRole?: 'ADMIN' | 'INNENDIENST' | 'HANDWERKER';
+			// NEU: Liste der verfügbaren Handwerker
+			availableHandwerker: { id: string; vorname: string; nachname: string }[];
 		};
 	}
 
@@ -126,6 +127,49 @@
 				</div>
 			</div>
 		</div>
+
+		{#if data.isStaff}
+			<div class="mb-8 rounded-xl bg-white p-6 shadow-md border-l-4 border-orange-400">
+				<h3 class="text-lg font-bold text-gray-900 mb-4">Zugewiesene Handwerker</h3>
+
+				{#if data.project.mitarbeiter && data.project.mitarbeiter.length > 0}
+					<div class="flex flex-wrap gap-3 mb-4">
+						{#each data.project.mitarbeiter as ma (ma.id)}
+							<div class="flex items-center gap-2 bg-gray-50 rounded-full pl-3 pr-1 py-1 border border-gray-200">
+								<span class="text-sm font-medium text-gray-700">{ma.vorname} {ma.nachname}</span>
+
+								{#if canEdit}
+									<form action="?/removeMitarbeiter" method="POST">
+										<input type="hidden" name="userId" value={ma.id} />
+										<button type="submit" class="p-1 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50" title="Entfernen">
+											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+												<path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+											</svg>
+										</button>
+									</form>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-sm text-gray-500 italic mb-4">Keine Handwerker zugewiesen.</p>
+				{/if}
+
+				{#if canEdit}
+					<form action="?/assignMitarbeiter" method="POST" class="flex gap-2 max-w-md">
+						<select name="userId" class="flex-1 text-sm border-gray-300 rounded-md focus:ring-orange-500 focus:border-orange-500" required>
+							<option value="" disabled selected>Handwerker auswählen...</option>
+							{#each data.availableHandwerker as h}
+								{#if !data.project.mitarbeiter?.some((m: any) => m.id === h.id)}
+									<option value={h.id}>{h.vorname} {h.nachname}</option>
+								{/if}
+							{/each}
+						</select>
+						<button type="submit" class="bg-orange-600 text-white px-3 py-2 rounded-md text-sm hover:bg-orange-700 shadow-sm">Hinzufügen</button>
+					</form>
+				{/if}
+			</div>
+		{/if}
 
 		<div class="mb-8">
 			<ProjectMetadataCard {metadata} {materialListe} />

@@ -11,16 +11,17 @@ export const load: PageServerLoad = async ({ locals }) => {
     const users = await prisma.user.findMany({
         orderBy: { erstelltAm: 'desc' },
         select: {
-            id: true,
-            email: true,
-            vorname: true,
-            nachname: true,
-            role: true,
-            erstelltAm: true
+            id: true, email: true, vorname: true, nachname: true, role: true, erstelltAm: true,
+            projekte: { select: { id: true, projektbezeichnung: true } }
         }
     });
 
-    return { users };
+    const allProjects = await prisma.projekt.findMany({
+        select: { id: true, projektbezeichnung: true, auftragsnummer: true },
+        orderBy: { erstelltAm: 'desc' }
+    });
+
+    return { users, allProjects };
 };
 
 export const actions: Actions = {
@@ -71,6 +72,8 @@ export const actions: Actions = {
         const nachname = data.get('nachname') as string; // NEU
         const newPassword = data.get('password') as string;
 
+        const selectedProjectIds = data.getAll('projectIds') as string[];
+
         // Objekt für das Update bauen
         const updateData: any = {
             role,
@@ -82,6 +85,15 @@ export const actions: Actions = {
         // Passwort nur ändern, wenn das Feld nicht leer ist
         if (newPassword && newPassword.trim() !== '') {
             updateData.passwordHash = await bcrypt.hash(newPassword, 10);
+        }
+
+        if (role === Role.HANDWERKER) {
+            updateData.projekte = {
+                set: selectedProjectIds.map(id => ({ id })) // 'set' überschreibt die Liste mit der neuen Auswahl
+            };
+        } else {
+            // Wenn er kein Handwerker ist, Verknüpfungen löschen (optional, aber sauber)
+            updateData.projekte = { set: [] };
         }
 
         await prisma.user.update({
