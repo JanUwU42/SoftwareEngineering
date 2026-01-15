@@ -28,11 +28,20 @@
 					<p class="mt-1 text-sm text-gray-500">Übersicht aller Projekte</p>
 				</div>
 
-				<div>
+				<div class="flex items-center gap-3">
+					<a
+						href="/admin/neu"
+						class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1.5">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+						</svg>
+						Neues Projekt
+					</a>
 					<form action="/?/logout" method="POST">
 						<button
-								type="submit"
-								class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-red-50 hover:text-red-700 transition-colors"
+							type="submit"
+							class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-red-50 hover:text-red-700 transition-colors"
 						>
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-1.5">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
@@ -53,13 +62,22 @@
 				</svg>
 				<h3 class="mt-4 text-lg font-medium text-gray-900">Keine Projekte vorhanden</h3>
 				<p class="mt-2 text-gray-500">Es wurden noch keine Projekte angelegt.</p>
+				<a
+					href="/admin/neu"
+					class="mt-6 inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+				>
+					<svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+					</svg>
+					Erstes Projekt erstellen
+				</a>
 			</div>
 		{:else}
 			<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 				{#each data.projects as project (project.id)}
 					<a
-							href="/projekt/{project.id}"
-							class="group block rounded-xl bg-white p-6 shadow-md transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-500"
+						href="/projekt/{project.id}"
+						class="group block rounded-xl bg-white p-6 shadow-md transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-500"
 					>
 						<div class="mb-4 flex items-start justify-between">
 							<div>
@@ -69,8 +87,8 @@
 								<p class="text-sm text-gray-500">{project.kundenname}</p>
 							</div>
 							<span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                         {project.auftragsnummer}
-                      </span>
+								{project.auftragsnummer}
+							</span>
 						</div>
 
 						<div class="mb-4 text-sm text-gray-600">
@@ -96,8 +114,8 @@
 							</div>
 							<div class="h-2 w-full overflow-hidden rounded-full bg-gray-200">
 								<div
-										class="h-full bg-blue-500 transition-all duration-300"
-										style="width: {project.fortschritt}%"
+									class="h-full bg-blue-500 transition-all duration-300"
+									style="width: {project.fortschritt}%"
 								></div>
 							</div>
 							<p class="mt-1 text-xs text-gray-500">
