@@ -1,5 +1,5 @@
-import { error, redirect } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import {error, fail, redirect} from '@sveltejs/kit';
+import type {Actions, PageServerLoad} from './$types';
 import { prisma } from '$lib/server/prisma';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -92,4 +92,78 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			aktualisiertAm: p.aktualisiertAm.toISOString()
 		}
 	};
+};
+
+export const actions: Actions = {
+	uploadBild: async ({ request, locals, params }) => {
+		// 1. Security Check: Nur Mitarbeiter dürfen hochladen!
+		if (!locals.user) {
+			return fail(403, { message: 'Nur Mitarbeiter dürfen Bilder hochladen.' });
+		}
+
+		const data = await request.formData();
+		const file = data.get('bild') as File;
+		const schrittId = data.get('schrittId') as string;
+		const beschreibung = data.get('beschreibung') as string;
+
+		// 2. Validierung
+		if (!file || file.size === 0) {
+			return fail(400, { message: 'Keine Datei ausgewählt.' });
+		}
+		if (!schrittId) {
+			return fail(400, { message: 'Kein Projektschritt zugeordnet.' });
+		}
+
+		// Optional: Prüfen ob es ein Bild ist
+		if (!file.type.startsWith('image/')) {
+			return fail(400, { message: 'Nur Bilddateien sind erlaubt.' });
+		}
+
+		try {
+			// 3. Konvertierung: File -> ArrayBuffer -> Buffer (für Prisma Bytes)
+			const arrayBuffer = await file.arrayBuffer();
+			const buffer = Buffer.from(arrayBuffer);
+
+			// 4. Speichern in DB
+			await prisma.bild.create({
+				data: {
+					daten: buffer,
+					mimeType: file.type,
+					beschreibung: beschreibung || file.name,
+					hochgeladenVon: 'Mitarbeiter', // Oder locals.user.email
+					schrittId: schrittId
+				}
+			});
+
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			return fail(500, { message: 'Fehler beim Speichern des Bildes.' });
+		}
+	},
+	deleteBild: async ({ request, locals }) => {
+		// 1. Security: Nur Mitarbeiter!
+		if (!locals.user) {
+			return fail(403, { message: 'Nur Mitarbeiter dürfen Bilder löschen.' });
+		}
+
+		const data = await request.formData();
+		const bildId = data.get('bildId') as string;
+
+		if (!bildId) {
+			return fail(400, { message: 'Keine Bild-ID übergeben.' });
+		}
+
+		try {
+			// 2. Löschen aus der DB
+			await prisma.bild.delete({
+				where: { id: bildId }
+			});
+
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			return fail(500, { message: 'Fehler beim Löschen des Bildes.' });
+		}
+	}
 };
