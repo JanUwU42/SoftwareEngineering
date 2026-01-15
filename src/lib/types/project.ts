@@ -28,8 +28,13 @@ export interface Material {
 	name: string;
 	menge: number;
 	einheit: string;
-	/** Optional: Bemerkungen zum Material */
 	bemerkung?: string;
+	bestand?: number;        // Aktueller Gesamtbestand im Lager (DB Wert)
+	linkId?: string;         // ID der Verknüpfung (zum Löschen)
+
+	// Berechnete Werte für die Anzeige
+	mengeBestellen?: number;
+	mengeImLager?: number;
 }
 
 /**

@@ -3,22 +3,10 @@ import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { Role, SchrittStatus } from '@prisma/client';
 
-// Helper function to create audit log entries
-async function createAuditLog(
-	userId: string,
-	aktion: string,
-	details: Record<string, unknown>,
-	projektId?: string,
-	schrittId?: string
-) {
+// Helper: Audit Log erstellen
+async function createAuditLog(userId: string, aktion: string, details: Record<string, unknown>, projektId?: string, schrittId?: string) {
 	await prisma.auditLog.create({
-		data: {
-			userId,
-			aktion,
-			details: JSON.stringify(details),
-			projektId,
-			schrittId
-		}
+		data: { userId, aktion, details: JSON.stringify(details), projektId, schrittId }
 	});
 }
 
@@ -29,15 +17,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user && !locals.projekt) throw redirect(303, '/');
 	if (locals.projekt && locals.projekt.id !== id) throw error(403, 'Zugriff verweigert.');
 
-	// For Handwerker: Check if they are assigned to this project
+	// Handwerker Check
 	if (locals.user && locals.user.role === Role.HANDWERKER) {
 		const project = await prisma.projekt.findFirst({
-			where: {
-				id,
-				mitarbeiter: {
-					some: { id: locals.user.id }
-				}
-			}
+			where: { id, mitarbeiter: { some: { id: locals.user.id } } }
 		});
 		if (!project) throw error(403, 'Sie sind diesem Projekt nicht zugeordnet.');
 	}
@@ -47,40 +30,26 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		where: { id },
 		include: {
 			adresse: true,
-			mitarbeiter: {
-				select: { id: true, vorname: true, nachname: true, role: true }
-			},
+			mitarbeiter: { select: { id: true, vorname: true, nachname: true, role: true } },
 			schritte: {
 				orderBy: { reihenfolge: 'asc' },
 				include: {
 					materialien: { include: { material: true } },
 					bilder: {
-						// For customers, only show approved images
 						where: locals.projekt ? { freigegeben: true } : {},
 						orderBy: { hochgeladenAm: 'desc' }
 					},
 					notizen: {
-						// For customers, only show approved notes
 						where: locals.projekt ? { sichtbarFuerKunde: true } : {},
 						orderBy: { erstelltAm: 'desc' },
-						include: {
-							autor: {
-								select: { vorname: true, nachname: true }
-							}
-						}
+						include: { autor: { select: { vorname: true, nachname: true } } }
 					},
-					// Load pending updates for staff view
 					pendingUpdates: locals.user
 						? {
-								where: { status: 'ausstehend' },
-								include: {
-									bearbeiter: {
-										select: { vorname: true, nachname: true }
-									},
-									bild: true
-								},
-								orderBy: { eingereichtAm: 'desc' }
-							}
+							where: { status: 'ausstehend' },
+							include: { bearbeiter: { select: { vorname: true, nachname: true } }, bild: true },
+							orderBy: { eingereichtAm: 'desc' }
+						}
 						: undefined
 				}
 			}
@@ -89,43 +58,73 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	if (!p) throw error(404, 'Projekt nicht gefunden');
 
-	// Materialliste aggregieren
-	const materialListe = p.schritte.flatMap((s) =>
-		s.materialien.map((m) => ({
-			id: m.material.id,
-			name: m.material.name,
-			menge: m.menge,
-			einheit: m.material.einheit,
-			bemerkung: m.bemerkung ?? undefined
-		}))
-	);
+	// 3. MATERIAL LOGIK: AGGREGATION & LAGER-CHECK
+	// Wir fassen gleiche Materialien aus verschiedenen Schritten zusammen
+	const materialMap = new Map<string, { id: string; name: string; menge: number; einheit: string; bestand: number; bemerkung?: string }>();
 
-	// Verfügbare Handwerker laden (nur für Admin/Innendienst relevant)
-	let availableHandwerker: { id: string; vorname: string; nachname: string }[] = [];
-	if (locals.user && (locals.user.role === Role.ADMIN || locals.user.role === Role.INNENDIENST)) {
-		availableHandwerker = await prisma.user.findMany({
-			where: { role: Role.HANDWERKER },
-			select: { id: true, vorname: true, nachname: true }
-		});
+	for (const s of p.schritte) {
+		for (const m of s.materialien) {
+			if (!m.material) continue;
+
+			const menge = Number(m.menge);
+			// Das ist der aktuelle Lagerbestand in der DB (bereits reduziert um das, was wir hier verbrauchen!)
+			const bestand = Number(m.material.bestand);
+
+			const existing = materialMap.get(m.material.id);
+			if (existing) {
+				existing.menge += menge;
+			} else {
+				materialMap.set(m.material.id, {
+					id: m.material.id,
+					name: m.material.name,
+					menge: menge,
+					einheit: m.material.einheit,
+					bestand: bestand,
+					bemerkung: m.bemerkung ?? undefined
+				});
+			}
+		}
 	}
 
-	// Count pending updates for this project (for Innendienst badge)
+	// BERECHNUNG: Was kommt aus Lager (Grün), was muss bestellt werden (Rot)?
+	const materialListe = Array.from(materialMap.values()).map(mat => {
+		let mengeBestellen = 0;
+		let mengeImLager = mat.menge;
+
+		// Wenn der Bestand negativ ist (z.B. -5), bedeutet das, wir haben 5 zu viel verplant -> Nachbestellen
+		if (mat.bestand < 0) {
+			const fehlmengeGlobal = Math.abs(mat.bestand);
+
+			// Wir bestellen maximal so viel wie wir für DIESES Projekt brauchen,
+			// aber nicht mehr als insgesamt fehlt.
+			mengeBestellen = Math.min(mat.menge, fehlmengeGlobal);
+
+			// Der Rest kommt aus dem Lager (kann rechnerisch 0 sein)
+			mengeImLager = Math.max(0, mat.menge - mengeBestellen);
+		}
+
+		return { ...mat, mengeBestellen, mengeImLager };
+	});
+
+	// 4. STAMMDATEN LADEN (für Dropdowns)
+	const allMaterials = await prisma.material.findMany({ orderBy: { name: 'asc' } });
+
+	let availableHandwerker: any[] = [];
 	let pendingUpdatesCount = 0;
 	if (locals.user && (locals.user.role === Role.ADMIN || locals.user.role === Role.INNENDIENST)) {
-		pendingUpdatesCount = await prisma.handwerkerUpdate.count({
-			where: {
-				schritt: { projektId: id },
-				status: 'ausstehend'
-			}
-		});
+		availableHandwerker = await prisma.user.findMany({ where: { role: Role.HANDWERKER }, select: { id: true, vorname: true, nachname: true } });
+		pendingUpdatesCount = await prisma.handwerkerUpdate.count({ where: { schritt: { projektId: id }, status: 'ausstehend' } });
 	}
 
+	// 5. RETURN
 	return {
 		isStaff: !!locals.user,
 		userRole: locals.user?.role,
 		userId: locals.user?.id,
 		availableHandwerker,
 		pendingUpdatesCount,
+		// WICHTIG: allMaterials (mit aktuellem Bestand) für die Timeline übergeben
+		allMaterials: allMaterials.map(m => ({...m, bestand: Number(m.bestand)})),
 
 		project: {
 			id: p.id,
@@ -133,12 +132,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			metadata: {
 				auftragsnummer: p.auftragsnummer,
 				kundenname: p.kundenname,
-				projektadresse: {
-					strasse: p.adresse?.strasse ?? '',
-					hausnummer: p.adresse?.hausnummer ?? '',
-					plz: p.adresse?.plz ?? '',
-					ort: p.adresse?.ort ?? ''
-				},
+				projektadresse: { strasse: p.adresse?.strasse ?? '', hausnummer: p.adresse?.hausnummer ?? '', plz: p.adresse?.plz ?? '', ort: p.adresse?.ort ?? '' },
 				projektbezeichnung: p.projektbezeichnung,
 				projektbeschreibung: p.projektbeschreibung ?? undefined,
 				geplanterStart: p.geplanterStart.toISOString(),
@@ -153,13 +147,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				status: schritt.status,
 				fortschritt: schritt.fortschritt,
 				reihenfolge: schritt.reihenfolge,
+
+				// Mapping Material für Timeline (mit linkId zum Löschen)
 				material: schritt.materialien.map((m) => ({
 					id: m.material.id,
+					linkId: m.id,
 					name: m.material.name,
-					menge: m.menge,
+					menge: Number(m.menge),
 					einheit: m.material.einheit,
 					bemerkung: m.bemerkung ?? undefined
 				})),
+
 				bilder: schritt.bilder.map((bild) => ({
 					id: bild.id,
 					url: `data:${bild.mimeType};base64,${Buffer.from(bild.daten).toString('base64')}`,
@@ -175,17 +173,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					autorName: `${notiz.autor.vorname} ${notiz.autor.nachname}`,
 					sichtbarFuerKunde: notiz.sichtbarFuerKunde
 				})) ?? [],
-				pendingUpdates: (schritt.pendingUpdates as unknown as Array<{
-					id: string;
-					typ: string;
-					neuerStatus: string | null;
-					neuerFortschritt: number | null;
-					notizText: string | null;
-					eingereichtAm: Date;
-					eingereichtVon: string;
-					bearbeiter: { vorname: string; nachname: string };
-					bild: { id: string; mimeType: string; daten: Buffer; beschreibung: string | null } | null;
-				}> | undefined)?.map((update) => ({
+				pendingUpdates: (schritt.pendingUpdates as any)?.map((update: any) => ({
 					id: update.id,
 					typ: update.typ,
 					neuerStatus: update.neuerStatus,
@@ -194,11 +182,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					eingereichtAm: update.eingereichtAm.toISOString(),
 					bearbeiterName: `${update.bearbeiter.vorname} ${update.bearbeiter.nachname}`,
 					eingereichtVonId: update.eingereichtVon,
-					bild: update.bild ? {
-						id: update.bild.id,
-						url: `data:${update.bild.mimeType};base64,${Buffer.from(update.bild.daten).toString('base64')}`,
-						beschreibung: update.bild.beschreibung
-					} : null
+					bild: update.bild ? { id: update.bild.id, url: `data:${update.bild.mimeType};base64,${Buffer.from(update.bild.daten).toString('base64')}`, beschreibung: update.bild.beschreibung } : null
 				})) ?? []
 			})),
 			materialListe: materialListe,
@@ -208,586 +192,297 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	};
 };
 
-// --- ACTIONS ---
-
 export const actions: Actions = {
-	// Upload image - behavior differs based on role
-	uploadBild: async ({ request, locals, params }) => {
-		if (!locals.user) return fail(403, { message: 'Nicht angemeldet.' });
+	// --- MATERIAL HINZUFÜGEN (Mit Duplikat-Check) ---
+	addMaterialToStep: async ({ request, locals, params }) => {
+		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
 
+		const data = await request.formData();
+		const schrittId = data.get('schrittId') as string;
+		const materialId = data.get('materialId') as string;
+		const rawMenge = (data.get('menge') as string).replace(',', '.');
+		const menge = parseFloat(rawMenge);
+
+		if (!schrittId || !materialId || isNaN(menge)) return fail(400);
+
+		// 1. Check: Existiert das Material schon in diesem Schritt?
+		const existing = await prisma.materialBedarf.findUnique({
+			where: {
+				schrittId_materialId: { schrittId, materialId }
+			}
+		});
+
+		if (existing) {
+			return fail(400, { message: 'Dieses Material ist in diesem Schritt bereits vorhanden. Bitte bearbeiten Sie stattdessen die Menge.' });
+		}
+
+		// 2. Transaktion: Erstellen & Bestand buchen
+		await prisma.$transaction([
+			prisma.materialBedarf.create({ data: { schrittId, materialId, menge } }),
+			prisma.material.update({
+				where: { id: materialId },
+				data: { bestand: { decrement: menge } }
+			})
+		]);
+
+		await createAuditLog(locals.user.id, 'MATERIAL_HINZUGEFUEGT', { schrittId, materialId, menge }, params.id, schrittId);
+		return { success: true };
+	},
+	// --- NEU: MATERIAL MENGE BEARBEITEN (Mit Lagerabgleich) ---
+	updateMaterialInStep: async ({ request, locals, params }) => {
+		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
+
+		const data = await request.formData();
+		const linkId = data.get('linkId') as string; // ID des MaterialBedarfs
+		const rawMenge = (data.get('menge') as string).replace(',', '.');
+		const neueMenge = parseFloat(rawMenge);
+
+		if (!linkId || isNaN(neueMenge)) return fail(400);
+
+		// Altes Material laden, um Differenz zu berechnen
+		const alterBedarf = await prisma.materialBedarf.findUnique({ where: { id: linkId } });
+		if (!alterBedarf) return fail(404, { message: 'Eintrag nicht gefunden' });
+
+		// Differenz berechnen:
+		// Wenn alt 5 und neu 8 -> Differenz 3 -> Lager muss um 3 reduziert werden (decrement 3)
+		// Wenn alt 5 und neu 2 -> Differenz -3 -> Lager muss um -3 reduziert werden (entspricht increment 3)
+		const differenz = neueMenge - alterBedarf.menge;
+
+		if (differenz === 0) return { success: true }; // Keine Änderung
+
+		await prisma.$transaction([
+			// 1. Update der Menge im Schritt
+			prisma.materialBedarf.update({
+				where: { id: linkId },
+				data: { menge: neueMenge }
+			}),
+			// 2. Anpassung des Lagerbestands um die Differenz
+			prisma.material.update({
+				where: { id: alterBedarf.materialId },
+				data: { bestand: { decrement: differenz } }
+			})
+		]);
+
+		await createAuditLog(locals.user.id, 'MATERIAL_MENGE_GEAENDERT', {
+			schrittId: alterBedarf.schrittId,
+			materialId: alterBedarf.materialId,
+			alteMenge: alterBedarf.menge,
+			neueMenge
+		}, params.id, alterBedarf.schrittId);
+
+		return { success: true, message: 'Menge aktualisiert.' };
+	},
+
+	// --- MATERIAL ENTFERNEN (FREIGEBEN) ---
+	removeMaterialFromStep: async ({ request, locals, params }) => {
+		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
+
+		const data = await request.formData();
+		const linkId = data.get('linkId') as string;
+
+		const bedarf = await prisma.materialBedarf.findUnique({ where: { id: linkId } });
+		if (!bedarf) return fail(404, { message: 'Eintrag nicht gefunden' });
+
+		await prisma.$transaction([
+			prisma.material.update({
+				where: { id: bedarf.materialId },
+				data: { bestand: { increment: bedarf.menge } }
+			}),
+			prisma.materialBedarf.delete({ where: { id: linkId } })
+		]);
+
+		await createAuditLog(locals.user.id, 'MATERIAL_ENTFERNT', { schrittId: bedarf.schrittId, materialId: bedarf.materialId, menge: bedarf.menge }, params.id, bedarf.schrittId);
+		return { success: true };
+	},
+
+
+	uploadBild: async ({ request, locals, params }) => {
+		if (!locals.user) return fail(403);
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
 		const file = data.get('bild') as File;
 		const beschreibung = data.get('beschreibung') as string;
 
-		if (!schrittId || !file || file.size === 0) {
-			return fail(400, { message: 'Bild und Schritt-ID erforderlich.' });
-		}
-
-		// Check file size (max 10MB)
-		if (file.size > 10 * 1024 * 1024) {
-			return fail(400, { message: 'Datei zu groß. Maximal 10MB erlaubt.' });
-		}
-
-		// Check mime type
-		if (!file.type.startsWith('image/')) {
-			return fail(400, { message: 'Nur Bilddateien erlaubt.' });
-		}
-
+		if (!schrittId || !file || file.size === 0) return fail(400);
 		const buffer = Buffer.from(await file.arrayBuffer());
 
-		// Get user info for audit log
-		const user = await prisma.user.findUnique({
-			where: { id: locals.user.id },
-			select: { vorname: true, nachname: true }
-		});
-
+		const user = await prisma.user.findUnique({ where: { id: locals.user.id } });
 		const uploaderName = user ? `${user.vorname} ${user.nachname}` : 'Unbekannt';
+		const isHandwerker = locals.user.role === Role.HANDWERKER;
 
-		// For Handwerker: Create image with freigegeben=false and create pending update
-		if (locals.user.role === Role.HANDWERKER) {
-			const bild = await prisma.bild.create({
-				data: {
-					daten: buffer,
-					mimeType: file.type,
-					beschreibung: beschreibung || null,
-					hochgeladenVon: uploaderName,
-					schrittId,
-					freigegeben: false
-				}
-			});
-
-			// Create pending update for review
-			await prisma.handwerkerUpdate.create({
-				data: {
-					typ: 'FOTO_UPLOAD',
-					schrittId,
-					bildId: bild.id,
-					eingereichtVon: locals.user.id
-				}
-			});
-
-			// Create audit log
-			await createAuditLog(
-				locals.user.id,
-				'FOTO_HOCHGELADEN_PENDING',
-				{ bildId: bild.id, beschreibung, schrittId },
-				params.id,
-				schrittId
-			);
-
-			return { success: true, message: 'Foto erfolgreich hochgeladen. Wartet auf Freigabe durch den Innendienst.' };
-		}
-
-		// For Admin/Innendienst: Create image directly with freigegeben=true
 		const bild = await prisma.bild.create({
 			data: {
-				daten: buffer,
-				mimeType: file.type,
-				beschreibung: beschreibung || null,
-				hochgeladenVon: uploaderName,
-				schrittId,
-				freigegeben: true
+				daten: buffer, mimeType: file.type, beschreibung: beschreibung || null,
+				hochgeladenVon: uploaderName, schrittId, freigegeben: !isHandwerker
 			}
 		});
 
-		await createAuditLog(
-			locals.user.id,
-			'FOTO_HOCHGELADEN',
-			{ bildId: bild.id, beschreibung, schrittId },
-			params.id,
-			schrittId
-		);
+		if (isHandwerker) {
+			await prisma.handwerkerUpdate.create({ data: { typ: 'FOTO_UPLOAD', schrittId, bildId: bild.id, eingereichtVon: locals.user.id } });
+			await createAuditLog(locals.user.id, 'FOTO_HOCHGELADEN_PENDING', { bildId: bild.id, schrittId }, params.id, schrittId);
+			return { success: true, message: 'Wartet auf Freigabe.' };
+		}
 
+		await createAuditLog(locals.user.id, 'FOTO_HOCHGELADEN', { bildId: bild.id, schrittId }, params.id, schrittId);
 		return { success: true };
 	},
 
 	deleteBild: async ({ request, locals, params }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
-
 		const data = await request.formData();
 		const bildId = data.get('bildId') as string;
-
-		if (!bildId) return fail(400);
-
-		const bild = await prisma.bild.findUnique({ where: { id: bildId } });
-		
 		await prisma.bild.delete({ where: { id: bildId } });
-
-		await createAuditLog(
-			locals.user.id,
-			'FOTO_GELOESCHT',
-			{ bildId, beschreibung: bild?.beschreibung },
-			params.id
-		);
-
+		await createAuditLog(locals.user.id, 'FOTO_GELOESCHT', { bildId }, params.id);
 		return { success: true };
 	},
 
-	// Handwerker submits a status/progress update for review
 	submitUpdate: async ({ request, locals, params }) => {
-		if (!locals.user) return fail(403, { message: 'Nicht angemeldet.' });
-
+		if (!locals.user) return fail(403);
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
-		const neuerStatus = data.get('status') as string | null;
+		const neuerStatus = data.get('status') as SchrittStatus | null;
 		const neuerFortschritt = data.get('fortschritt') as string | null;
 
-		if (!schrittId) return fail(400, { message: 'Schritt-ID erforderlich.' });
-
-		// Get current step values for audit
-		const currentStep = await prisma.schritt.findUnique({
-			where: { id: schrittId },
-			select: { status: true, fortschritt: true, titel: true }
-		});
-
-		if (!currentStep) return fail(404, { message: 'Schritt nicht gefunden.' });
-
-		// For Handwerker: Create pending update
 		if (locals.user.role === Role.HANDWERKER) {
 			await prisma.handwerkerUpdate.create({
 				data: {
-					typ: 'STATUS_AENDERUNG',
-					schrittId,
-					neuerStatus: neuerStatus ? (neuerStatus as SchrittStatus) : null,
+					typ: 'STATUS_AENDERUNG', schrittId, neuerStatus,
 					neuerFortschritt: neuerFortschritt ? parseInt(neuerFortschritt) : null,
 					eingereichtVon: locals.user.id
 				}
 			});
-
-			await createAuditLog(
-				locals.user.id,
-				'STATUS_UPDATE_EINGEREICHT',
-				{
-					schrittId,
-					schrittTitel: currentStep.titel,
-					alterStatus: currentStep.status,
-					neuerStatus,
-					alterFortschritt: currentStep.fortschritt,
-					neuerFortschritt: neuerFortschritt ? parseInt(neuerFortschritt) : null
-				},
-				params.id,
-				schrittId
-			);
-
-			return { success: true, message: 'Aktualisierung eingereicht. Wartet auf Freigabe durch den Innendienst.' };
+			return { success: true, message: 'Update eingereicht.' };
 		}
-
-		// For Admin/Innendienst: Apply directly
 		await prisma.schritt.update({
 			where: { id: schrittId },
-			data: {
-				...(neuerStatus && { status: neuerStatus as SchrittStatus }),
-				...(neuerFortschritt && { fortschritt: parseInt(neuerFortschritt) })
-			}
+			data: { ...(neuerStatus && { status: neuerStatus }), ...(neuerFortschritt && { fortschritt: parseInt(neuerFortschritt) }) }
 		});
-
-		await createAuditLog(
-			locals.user.id,
-			'STATUS_GEAENDERT',
-			{
-				schrittId,
-				schrittTitel: currentStep.titel,
-				alterStatus: currentStep.status,
-				neuerStatus,
-				alterFortschritt: currentStep.fortschritt,
-				neuerFortschritt: neuerFortschritt ? parseInt(neuerFortschritt) : null
-			},
-			params.id,
-			schrittId
-		);
-
 		return { success: true };
 	},
 
-	// Handwerker adds a note
 	addNotiz: async ({ request, locals, params }) => {
-		if (!locals.user) return fail(403, { message: 'Nicht angemeldet.' });
-
+		if (!locals.user) return fail(403);
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
 		const text = data.get('text') as string;
 
-		if (!schrittId || !text?.trim()) {
-			return fail(400, { message: 'Schritt-ID und Notiztext erforderlich.' });
-		}
-
-		// For Handwerker: Create pending update with note
 		if (locals.user.role === Role.HANDWERKER) {
 			await prisma.handwerkerUpdate.create({
-				data: {
-					typ: 'NOTIZ',
-					schrittId,
-					notizText: text.trim(),
-					eingereichtVon: locals.user.id
-				}
+				data: { typ: 'NOTIZ', schrittId, notizText: text, eingereichtVon: locals.user.id }
 			});
-
-			await createAuditLog(
-				locals.user.id,
-				'NOTIZ_EINGEREICHT',
-				{ schrittId, textVorschau: text.substring(0, 100) },
-				params.id,
-				schrittId
-			);
-
-			return { success: true, message: 'Notiz eingereicht. Wartet auf Freigabe durch den Innendienst.' };
+			return { success: true, message: 'Notiz eingereicht.' };
 		}
-
-		// For Admin/Innendienst: Create note directly (visible internally, not to customer by default)
-		const notiz = await prisma.notiz.create({
-			data: {
-				text: text.trim(),
-				schrittId,
-				erstelltVon: locals.user.id,
-				sichtbarFuerKunde: false
-			}
+		await prisma.notiz.create({
+			data: { text, schrittId, erstelltVon: locals.user.id, sichtbarFuerKunde: false }
 		});
-
-		await createAuditLog(
-			locals.user.id,
-			'NOTIZ_ERSTELLT',
-			{ notizId: notiz.id, schrittId, textVorschau: text.substring(0, 100) },
-			params.id,
-			schrittId
-		);
-
 		return { success: true };
 	},
 
-	// Toggle note visibility for customer
 	toggleNotizSichtbarkeit: async ({ request, locals, params }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
-
 		const data = await request.formData();
 		const notizId = data.get('notizId') as string;
-
-		if (!notizId) return fail(400);
-
 		const notiz = await prisma.notiz.findUnique({ where: { id: notizId } });
-		if (!notiz) return fail(404);
-
-		await prisma.notiz.update({
-			where: { id: notizId },
-			data: { sichtbarFuerKunde: !notiz.sichtbarFuerKunde }
-		});
-
-		await createAuditLog(
-			locals.user.id,
-			'NOTIZ_SICHTBARKEIT_GEAENDERT',
-			{ notizId, neueSichtbarkeit: !notiz.sichtbarFuerKunde },
-			params.id
-		);
-
+		if (notiz) await prisma.notiz.update({ where: { id: notizId }, data: { sichtbarFuerKunde: !notiz.sichtbarFuerKunde } });
 		return { success: true };
 	},
 
-	// Innendienst approves a pending update
 	approveUpdate: async ({ request, locals, params }) => {
-		if (!locals.user || locals.user.role === Role.HANDWERKER) {
-			return fail(403, { message: 'Keine Berechtigung.' });
-		}
-
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
 		const updateId = data.get('updateId') as string;
+		const update = await prisma.handwerkerUpdate.findUnique({ where: { id: updateId } });
+		if (!update || update.status !== 'ausstehend') return fail(400);
 
-		if (!updateId) return fail(400, { message: 'Update-ID erforderlich.' });
-
-		const update = await prisma.handwerkerUpdate.findUnique({
-			where: { id: updateId },
-			include: { schritt: true, bild: true }
-		});
-
-		if (!update) return fail(404, { message: 'Update nicht gefunden.' });
-		if (update.status !== 'ausstehend') return fail(400, { message: 'Update wurde bereits bearbeitet.' });
-
-		// Apply the update based on type
 		if (update.typ === 'STATUS_AENDERUNG') {
 			await prisma.schritt.update({
 				where: { id: update.schrittId },
-				data: {
-					...(update.neuerStatus && { status: update.neuerStatus }),
-					...(update.neuerFortschritt !== null && { fortschritt: update.neuerFortschritt })
-				}
+				data: { ...(update.neuerStatus && { status: update.neuerStatus }), ...(update.neuerFortschritt !== null && { fortschritt: update.neuerFortschritt }) }
 			});
 		} else if (update.typ === 'FOTO_UPLOAD' && update.bildId) {
-			await prisma.bild.update({
-				where: { id: update.bildId },
-				data: { freigegeben: true }
-			});
+			await prisma.bild.update({ where: { id: update.bildId }, data: { freigegeben: true } });
 		} else if (update.typ === 'NOTIZ' && update.notizText) {
-			await prisma.notiz.create({
-				data: {
-					text: update.notizText,
-					schrittId: update.schrittId,
-					erstelltVon: update.eingereichtVon,
-					sichtbarFuerKunde: false
-				}
-			});
+			await prisma.notiz.create({ data: { text: update.notizText, schrittId: update.schrittId, erstelltVon: update.eingereichtVon, sichtbarFuerKunde: false } });
 		}
 
-		// Mark update as approved
-		await prisma.handwerkerUpdate.update({
-			where: { id: updateId },
-			data: {
-				status: 'genehmigt',
-				bearbeitetVon: locals.user.id,
-				bearbeitetAm: new Date()
-			}
-		});
-
-		await createAuditLog(
-			locals.user.id,
-			'UPDATE_GENEHMIGT',
-			{
-				updateId,
-				typ: update.typ,
-				schrittId: update.schrittId,
-				eingereichtVon: update.eingereichtVon
-			},
-			params.id,
-			update.schrittId
-		);
-
+		await prisma.handwerkerUpdate.update({ where: { id: updateId }, data: { status: 'genehmigt', bearbeitetVon: locals.user.id, bearbeitetAm: new Date() } });
 		return { success: true };
 	},
 
-	// Innendienst rejects a pending update
 	rejectUpdate: async ({ request, locals, params }) => {
-		if (!locals.user || locals.user.role === Role.HANDWERKER) {
-			return fail(403, { message: 'Keine Berechtigung.' });
-		}
-
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
 		const updateId = data.get('updateId') as string;
-		const grund = data.get('grund') as string;
-
-		if (!updateId) return fail(400, { message: 'Update-ID erforderlich.' });
-
-		const update = await prisma.handwerkerUpdate.findUnique({
-			where: { id: updateId },
-			include: { bild: true }
-		});
-
-		if (!update) return fail(404, { message: 'Update nicht gefunden.' });
-		if (update.status !== 'ausstehend') return fail(400, { message: 'Update wurde bereits bearbeitet.' });
-
-		// If it's a photo upload, delete the unfreigegeben image
-		if (update.typ === 'FOTO_UPLOAD' && update.bildId) {
-			await prisma.bild.delete({ where: { id: update.bildId } });
-		}
-
-		// Mark update as rejected
-		await prisma.handwerkerUpdate.update({
-			where: { id: updateId },
-			data: {
-				status: 'abgelehnt',
-				bearbeitetVon: locals.user.id,
-				bearbeitetAm: new Date(),
-				ablehnungsgrund: grund || null
-			}
-		});
-
-		await createAuditLog(
-			locals.user.id,
-			'UPDATE_ABGELEHNT',
-			{
-				updateId,
-				typ: update.typ,
-				grund,
-				schrittId: update.schrittId,
-				eingereichtVon: update.eingereichtVon
-			},
-			params.id,
-			update.schrittId
-		);
-
+		const update = await prisma.handwerkerUpdate.findUnique({ where: { id: updateId } });
+		if (update?.typ === 'FOTO_UPLOAD' && update.bildId) await prisma.bild.delete({ where: { id: update.bildId } });
+		await prisma.handwerkerUpdate.update({ where: { id: updateId }, data: { status: 'abgelehnt', bearbeitetVon: locals.user.id, bearbeitetAm: new Date() } });
 		return { success: true };
 	},
 
-	// Mitarbeiter zuweisen (Admin/Innendienst only)
 	assignMitarbeiter: async ({ request, params, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
-
 		const data = await request.formData();
 		const userId = data.get('userId') as string;
-
-		if (!userId) return fail(400);
-
-		await prisma.projekt.update({
-			where: { id: params.id },
-			data: {
-				mitarbeiter: {
-					connect: { id: userId }
-				}
-			}
-		});
-
-		await createAuditLog(
-			locals.user.id,
-			'MITARBEITER_ZUGEWIESEN',
-			{ projektId: params.id, mitarbeiterId: userId },
-			params.id
-		);
-
+		await prisma.projekt.update({ where: { id: params.id }, data: { mitarbeiter: { connect: { id: userId } } } });
 		return { success: true };
 	},
 
-	// Mitarbeiter entfernen (Admin/Innendienst only)
 	removeMitarbeiter: async ({ request, params, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
-
 		const data = await request.formData();
 		const userId = data.get('userId') as string;
-
-		if (!userId) return fail(400);
-
-		await prisma.projekt.update({
-			where: { id: params.id },
-			data: {
-				mitarbeiter: {
-					disconnect: { id: userId }
-				}
-			}
-		});
-
-		await createAuditLog(
-			locals.user.id,
-			'MITARBEITER_ENTFERNT',
-			{ projektId: params.id, mitarbeiterId: userId },
-			params.id
-		);
-
+		await prisma.projekt.update({ where: { id: params.id }, data: { mitarbeiter: { disconnect: { id: userId } } } });
 		return { success: true };
 	},
 
 	updateProject: async ({ request, params, locals }) => {
-		if (!locals.user || locals.user.role === Role.HANDWERKER) {
-			return fail(403, { message: 'Keine Berechtigung.' });
-		}
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
-		const bezeichnung = data.get('projektbezeichnung') as string;
-		const beschreibung = data.get('projektbeschreibung') as string;
-		const start = data.get('geplanterStart') as string;
-		const ende = data.get('geplantesEnde') as string;
-		const strasse = data.get('strasse') as string;
-		const hausnummer = data.get('hausnummer') as string;
-		const plz = data.get('plz') as string;
-		const ort = data.get('ort') as string;
-
 		await prisma.projekt.update({
 			where: { id: params.id },
 			data: {
-				projektbezeichnung: bezeichnung,
-				projektbeschreibung: beschreibung,
-				geplanterStart: new Date(start),
-				geplantesEnde: new Date(ende),
-				adresse: {
-					update: { strasse, hausnummer, plz, ort }
-				}
+				projektbezeichnung: data.get('projektbezeichnung') as string,
+				projektbeschreibung: data.get('projektbeschreibung') as string,
+				geplanterStart: new Date(data.get('geplanterStart') as string),
+				geplantesEnde: new Date(data.get('geplantesEnde') as string),
+				adresse: { update: { strasse: data.get('strasse') as string, hausnummer: data.get('hausnummer') as string, plz: data.get('plz') as string, ort: data.get('ort') as string } }
 			}
 		});
-
-		await createAuditLog(
-			locals.user.id,
-			'PROJEKT_AKTUALISIERT',
-			{ bezeichnung, start, ende },
-			params.id
-		);
-
 		return { success: true };
 	},
 
 	createSchritt: async ({ request, params, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
-		const titel = data.get('titel') as string;
-		const start = data.get('startDatum') as string;
-		const ende = data.get('endDatum') as string;
-		const beschreibung = data.get('beschreibung') as string;
-
-		const lastStep = await prisma.schritt.findFirst({
-			where: { projektId: params.id },
-			orderBy: { reihenfolge: 'desc' }
-		});
-		const neueReihenfolge = (lastStep?.reihenfolge ?? 0) + 1;
-
-		const schritt = await prisma.schritt.create({
+		const lastStep = await prisma.schritt.findFirst({ where: { projektId: params.id }, orderBy: { reihenfolge: 'desc' } });
+		await prisma.schritt.create({
 			data: {
-				projektId: params.id!,
-				titel,
-				beschreibung,
-				startDatum: new Date(start),
-				endDatum: new Date(ende),
-				reihenfolge: neueReihenfolge,
-				status: 'offen',
-				fortschritt: 0
+				projektId: params.id!, titel: data.get('titel') as string, beschreibung: data.get('beschreibung') as string,
+				startDatum: new Date(data.get('startDatum') as string), endDatum: new Date(data.get('endDatum') as string),
+				reihenfolge: (lastStep?.reihenfolge ?? 0) + 1, status: 'offen'
 			}
 		});
-
-		await createAuditLog(
-			locals.user.id,
-			'SCHRITT_ERSTELLT',
-			{ schrittId: schritt.id, titel },
-			params.id,
-			schritt.id
-		);
-
 		return { success: true };
 	},
 
-	updateSchritt: async ({ request, locals, params }) => {
+	updateSchritt: async ({ request, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
-		const schrittId = data.get('schrittId') as string;
-		const titel = data.get('titel') as string;
-		const status = data.get('status') as SchrittStatus;
-		const fortschritt = parseInt(data.get('fortschritt') as string);
-		const start = data.get('startDatum') as string;
-		const ende = data.get('endDatum') as string;
-
-		const oldSchritt = await prisma.schritt.findUnique({ where: { id: schrittId } });
-
 		await prisma.schritt.update({
-			where: { id: schrittId },
-			data: { titel, status, fortschritt, startDatum: new Date(start), endDatum: new Date(ende) }
+			where: { id: data.get('schrittId') as string },
+			data: {
+				titel: data.get('titel') as string, status: data.get('status') as SchrittStatus,
+				fortschritt: parseInt(data.get('fortschritt') as string),
+				startDatum: new Date(data.get('startDatum') as string), endDatum: new Date(data.get('endDatum') as string)
+			}
 		});
-
-		await createAuditLog(
-			locals.user.id,
-			'SCHRITT_AKTUALISIERT',
-			{
-				schrittId,
-				titel,
-				alterStatus: oldSchritt?.status,
-				neuerStatus: status,
-				alterFortschritt: oldSchritt?.fortschritt,
-				neuerFortschritt: fortschritt
-			},
-			params.id,
-			schrittId
-		);
-
 		return { success: true };
 	},
 
-	deleteSchritt: async ({ request, locals, params }) => {
+	deleteSchritt: async ({ request, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
-		const schrittId = data.get('schrittId') as string;
-
-		const schritt = await prisma.schritt.findUnique({ where: { id: schrittId } });
-
-		await prisma.schritt.delete({ where: { id: schrittId } });
-
-		await createAuditLog(
-			locals.user.id,
-			'SCHRITT_GELOESCHT',
-			{ schrittId, titel: schritt?.titel },
-			params.id,
-			schrittId
-		);
-
+		await prisma.schritt.delete({ where: { id: data.get('schrittId') as string } });
 		return { success: true };
 	}
 };
