@@ -1,8 +1,25 @@
 import { fail, redirect } from '@sveltejs/kit';
-import type { Actions } from './$types';
+import type {Actions, PageServerLoad} from './$types';
 import { prisma } from '$lib/server/prisma';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import {Role} from "@prisma/client";
+
+export const load: PageServerLoad = async ({ locals }) => {
+
+    if (locals.user) {
+        const istMitarbeiter =
+            locals.user.role === Role.ADMIN ||
+            locals.user.role === Role.HANDWERKER ||
+            locals.user.role === Role.INNENDIENST;
+
+        if (istMitarbeiter) {
+            throw redirect(303, '/admin/uebersicht');
+        }
+    }
+
+    return {};
+};
 
 export const actions: Actions = {
     login: async ({ request, cookies }) => {
