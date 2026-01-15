@@ -26,7 +26,6 @@
 	<h2 class="mb-6 text-2xl font-bold text-gray-800">Projektübersicht</h2>
 
 	<div class="grid gap-6 md:grid-cols-2">
-		<!-- Linke Spalte: Allgemeine Infos -->
 		<div class="space-y-4">
 			<div>
 				<span class="text-sm font-medium text-gray-500">Auftragsnummer</span>
@@ -67,32 +66,45 @@
 			</div>
 		</div>
 
-		<!-- Rechte Spalte: Materialliste -->
 		<div>
 			<h3 class="mb-4 text-lg font-semibold text-gray-800">Materialliste</h3>
 			{#if materialListe.length > 0}
 				<div class="max-h-80 overflow-y-auto rounded-lg border border-gray-200">
 					<table class="w-full text-sm">
 						<thead class="sticky top-0 bg-gray-50">
-							<tr>
-								<th class="px-4 py-2 text-left font-medium text-gray-600">Material</th>
-								<th class="px-4 py-2 text-right font-medium text-gray-600">Menge</th>
-								<th class="px-4 py-2 text-left font-medium text-gray-600">Einheit</th>
-							</tr>
+						<tr>
+							<th class="px-4 py-2 text-left font-medium text-gray-600">Material</th>
+							<th class="px-4 py-2 text-right font-medium text-gray-600">Menge</th>
+							<th class="px-4 py-2 text-right font-medium text-gray-600">Status</th>
+						</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100">
-							{#each materialListe as material (material.id)}
-								<tr class="hover:bg-gray-50">
-									<td class="px-4 py-2">
-										<span class="font-medium text-gray-900">{material.name}</span>
-										{#if material.bemerkung}
-											<span class="block text-xs text-gray-500">{material.bemerkung}</span>
+						{#each materialListe as material (material.id)}
+							<tr class="hover:bg-gray-50">
+								<td class="px-4 py-2 align-top">
+									<span class="font-medium text-gray-900">{material.name}</span>
+									{#if material.bemerkung}
+										<span class="block text-xs text-gray-500">{material.bemerkung}</span>
+									{/if}
+								</td>
+								<td class="px-4 py-2 text-right align-top text-gray-900">{material.menge} {material.einheit}</td>
+								<td class="px-4 py-2 text-right align-top">
+									<div class="flex flex-col items-end gap-1">
+										{#if (material.mengeImLager ?? 0) > 0}
+                                        <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
+                                            Lager: {material.mengeImLager}
+                                        </span>
 										{/if}
-									</td>
-									<td class="px-4 py-2 text-right text-gray-900">{material.menge}</td>
-									<td class="px-4 py-2 text-gray-600">{material.einheit}</td>
-								</tr>
-							{/each}
+
+										{#if (material.mengeBestellen ?? 0) > 0}
+                                        <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700 ring-1 ring-inset ring-red-600/20">
+                                            Bestellen: {material.mengeBestellen}
+                                        </span>
+										{/if}
+									</div>
+								</td>
+							</tr>
+						{/each}
 						</tbody>
 					</table>
 				</div>
