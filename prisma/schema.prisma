@@ -19,15 +19,12 @@ model Session {
   id        String   @id
   expiresAt DateTime
 
-
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
 
   projektId String?
   projekt   Projekt? @relation(fields: [projektId], references: [id], onDelete: Cascade)
 }
-
 
 
 enum SchrittStatus {
@@ -49,11 +46,8 @@ model Projekt {
   erstelltAm          DateTime @default(now())
   aktualisiertAm      DateTime @updatedAt
 
-
   adresse             Adresse?
   schritte            Schritt[]
-
-
   sessions            Session[]
 }
 
@@ -63,7 +57,6 @@ model Adresse {
   hausnummer  String
   plz         String
   ort         String
-
 
   projektId   String  @unique
   projekt     Projekt @relation(fields: [projektId], references: [id], onDelete: Cascade)
@@ -79,17 +72,32 @@ model Schritt {
   fortschritt  Int           @default(0)
   reihenfolge  Int
 
-
   projektId    String
   projekt      Projekt       @relation(fields: [projektId], references: [id], onDelete: Cascade)
 
   materialien  MaterialBedarf[]
+
+  bilder       Bild[]
+}
+
+
+model Bild {
+  id             String   @id @default(uuid())
+
+  daten          Bytes
+  mimeType       String
+  beschreibung   String?
+  hochgeladenAm  DateTime @default(now())
+  hochgeladenVon String
+
+  schrittId      String
+  schritt        Schritt  @relation(fields: [schrittId], references: [id], onDelete: Cascade)
 }
 
 model Material {
   id      String   @id @default(uuid())
   name    String
-  einheit String   //"m²", "kg", "Stück"
+  einheit String
 
   verwendungen MaterialBedarf[]
 }
