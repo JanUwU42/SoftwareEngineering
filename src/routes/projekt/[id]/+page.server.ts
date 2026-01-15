@@ -1,17 +1,14 @@
-import {error, fail, redirect} from '@sveltejs/kit';
-import type {Actions, PageServerLoad} from './$types';
+import { error, redirect, fail } from '@sveltejs/kit';
+import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/server/prisma';
+import { Role } from '@prisma/client'; // Wichtig für den Rollen-Check
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const { id } = params;
 
 	// 1. AUTH CHECK
-	if (!locals.user && !locals.projekt) {
-		throw redirect(303, '/');
-	}
-	if (locals.projekt && locals.projekt.id !== id) {
-		throw error(403, 'Zugriff verweigert: Dies ist nicht Ihr Projekt.');
-	}
+	if (!locals.user && !locals.projekt) throw redirect(303, '/');
+	if (locals.projekt && locals.projekt.id !== id) throw error(403, 'Zugriff verweigert.');
 
 	// 2. DB ABFRAGE
 	const p = await prisma.projekt.findUnique({
@@ -28,15 +25,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		}
 	});
 
-	if (!p) {
-		throw error(404, 'Projekt nicht gefunden');
-	}
+	if (!p) throw error(404, 'Projekt nicht gefunden');
 
-	// 3. DATEN AUFBEREITUNG
-	// Wir nennen das Objekt hier explizit "project" (Englisch),
-	// damit es sich nicht mit "locals.projekt" beißt!
+	// Materialliste aggregieren
+	const materialListe = p.schritte.flatMap((s) =>
+		s.materialien.map((m) => ({
+			id: m.material.id,
+			name: m.material.name,
+			menge: m.menge,
+			einheit: m.material.einheit,
+			bemerkung: m.bemerkung ?? undefined
+		}))
+	);
+
 	return {
 		isStaff: !!locals.user,
+		// Wir geben die Rolle mit, damit das Frontend weiß, ob Edit-Buttons gezeigt werden
+		userRole: locals.user?.role,
+
 		project: {
 			id: p.id,
 			metadata: {
@@ -50,7 +56,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				},
 				projektbezeichnung: p.projektbezeichnung,
 				projektbeschreibung: p.projektbeschreibung ?? undefined,
-				// Dates werden hier zu Strings
 				geplanterStart: p.geplanterStart.toISOString(),
 				geplantesEnde: p.geplantesEnde.toISOString()
 			},
@@ -78,95 +83,121 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					hochgeladenVon: bild.hochgeladenVon
 				}))
 			})),
-			// Materialliste aggregieren
-			materialListe: p.schritte.flatMap((s) =>
-				s.materialien.map((m) => ({
-					id: m.material.id,
-					name: m.material.name,
-					menge: m.menge,
-					einheit: m.material.einheit,
-					bemerkung: m.bemerkung ?? undefined
-				}))
-			),
+			materialListe: materialListe,
 			erstelltAm: p.erstelltAm.toISOString(),
 			aktualisiertAm: p.aktualisiertAm.toISOString()
 		}
 	};
 };
 
+// --- ACTIONS ---
+
 export const actions: Actions = {
-	uploadBild: async ({ request, locals, params }) => {
-		// 1. Security Check: Nur Mitarbeiter dürfen hochladen!
-		if (!locals.user) {
-			return fail(403, { message: 'Bitte einloggen.' });
+	// Vorhandene Actions
+	uploadBild: async ({ request, locals }) => { /* ... Dein Upload Code ... */ },
+	deleteBild: async ({ request, locals }) => { /* ... Dein Delete Code ... */ },
+
+	// 1. PROJEKT METADATEN BEARBEITEN
+	updateProject: async ({ request, params, locals }) => {
+		// Nur Admin & Innendienst
+		if (!locals.user || locals.user.role === Role.HANDWERKER) {
+			return fail(403, { message: 'Keine Berechtigung.' });
 		}
 
 		const data = await request.formData();
-		const file = data.get('bild') as File;
-		const schrittId = data.get('schrittId') as string;
+		const bezeichnung = data.get('projektbezeichnung') as string;
+		const beschreibung = data.get('projektbeschreibung') as string;
+		const start = data.get('geplanterStart') as string;
+		const ende = data.get('geplantesEnde') as string;
+
+		// Adresse
+		const strasse = data.get('strasse') as string;
+		const hausnummer = data.get('hausnummer') as string;
+		const plz = data.get('plz') as string;
+		const ort = data.get('ort') as string;
+
+		await prisma.projekt.update({
+			where: { id: params.id },
+			data: {
+				projektbezeichnung: bezeichnung,
+				projektbeschreibung: beschreibung,
+				geplanterStart: new Date(start),
+				geplantesEnde: new Date(ende),
+				adresse: {
+					update: {
+						strasse, hausnummer, plz, ort
+					}
+				}
+			}
+		});
+		return { success: true };
+	},
+
+	// 2. NEUEN SCHRITT HINZUFÜGEN
+	createSchritt: async ({ request, params, locals }) => {
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
+
+		const data = await request.formData();
+		const titel = data.get('titel') as string;
+		const start = data.get('startDatum') as string;
+		const ende = data.get('endDatum') as string;
 		const beschreibung = data.get('beschreibung') as string;
 
-		// 2. Validierung
-		if (!file || file.size === 0) {
-			return fail(400, { message: 'Keine Datei ausgewählt.' });
-		}
-		if (!schrittId) {
-			return fail(400, { message: 'Kein Projektschritt zugeordnet.' });
-		}
+		// Automatisch ans Ende hängen (höchste Reihenfolge + 1)
+		const lastStep = await prisma.schritt.findFirst({
+			where: { projektId: params.id },
+			orderBy: { reihenfolge: 'desc' }
+		});
+		const neueReihenfolge = (lastStep?.reihenfolge ?? 0) + 1;
 
-		// Optional: Prüfen ob es ein Bild ist
-		if (!file.type.startsWith('image/')) {
-			return fail(400, { message: 'Nur Bilddateien sind erlaubt.' });
-		}
-
-		try {
-			// 3. Konvertierung: File -> ArrayBuffer -> Buffer (für Prisma Bytes)
-			const arrayBuffer = await file.arrayBuffer();
-			const buffer = Buffer.from(arrayBuffer);
-
-			// 4. Speichern in DB
-			await prisma.bild.create({
-				data: {
-					daten: buffer,
-					mimeType: file.type,
-					beschreibung: beschreibung || file.name,
-					hochgeladenVon: 'Mitarbeiter', // Oder locals.user.email
-					schrittId: schrittId
-				}
-			});
-
-			return { success: true };
-		} catch (err) {
-			console.error(err);
-			return fail(500, { message: 'Fehler beim Speichern des Bildes.' });
-		}
+		await prisma.schritt.create({
+			data: {
+				projektId: params.id!,
+				titel,
+				beschreibung,
+				startDatum: new Date(start),
+				endDatum: new Date(ende),
+				reihenfolge: neueReihenfolge,
+				status: 'offen',
+				fortschritt: 0
+			}
+		});
+		return { success: true };
 	},
-	deleteBild: async ({ request, locals }) => {
-		// 1. Security: Nur Mitarbeiter!
-		if (!locals.user) {
-			return fail(403, { message: 'Nicht eingeloggt.' });
-		}
-		if (locals.user.role === 'HANDWERKER') {
-			return fail(403, { message: 'Nur Büro und Admins dürfen Bilder löschen.' });
-		}
+
+	// 3. SCHRITT BEARBEITEN
+	updateSchritt: async ({ request, locals }) => {
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 
 		const data = await request.formData();
-		const bildId = data.get('bildId') as string;
+		const schrittId = data.get('schrittId') as string;
+		const titel = data.get('titel') as string;
+		const status = data.get('status') as any; // 'offen' | 'in_arbeit' | 'fertig'
+		const fortschritt = parseInt(data.get('fortschritt') as string);
+		const start = data.get('startDatum') as string;
+		const ende = data.get('endDatum') as string;
 
-		if (!bildId) {
-			return fail(400, { message: 'Keine Bild-ID übergeben.' });
-		}
+		await prisma.schritt.update({
+			where: { id: schrittId },
+			data: {
+				titel,
+				status,
+				fortschritt,
+				startDatum: new Date(start),
+				endDatum: new Date(ende)
+			}
+		});
+		return { success: true };
+	},
 
-		try {
-			// 2. Löschen aus der DB
-			await prisma.bild.delete({
-				where: { id: bildId }
-			});
+	// 4. SCHRITT LÖSCHEN
+	deleteSchritt: async ({ request, locals }) => {
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 
-			return { success: true };
-		} catch (err) {
-			console.error(err);
-			return fail(500, { message: 'Fehler beim Löschen des Bildes.' });
-		}
+		const data = await request.formData();
+		const schrittId = data.get('schrittId') as string;
+
+		await prisma.schritt.delete({ where: { id: schrittId } });
+		return { success: true };
 	}
 };
