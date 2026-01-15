@@ -23,6 +23,7 @@ model User {
   role         Role      @default(HANDWERKER)
   projekte     Projekt[]
   sessions     Session[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model Session {
@@ -125,4 +126,16 @@ model MaterialBedarf {
   material    Material @relation(fields: [materialId], references: [id])
 
   @@unique([schrittId, materialId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  email     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  used      Boolean  @default(false)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
