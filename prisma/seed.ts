@@ -44,7 +44,9 @@ async function main() {
         data: {
             email: 'admin@smartbuilders.de',
             passwordHash,
-            role: Role.ADMIN
+            role: Role.ADMIN,
+            vorname: 'Chef',
+            nachname: 'Chefson',
         }
     });
     console.log(`👤 Mitarbeiter erstellt: ${admin.email} (Passwort: geheim123)`);
