@@ -14,41 +14,41 @@
 		projektbezeichnung: data.project.metadata.projektbezeichnung,
 		projektbeschreibung: data.project.metadata.projektbeschreibung,
 		geplanterStart: data.project.metadata.geplanterStart
-			? new Date(data.project.metadata.geplanterStart)
-			: undefined,
+				? new Date(data.project.metadata.geplanterStart)
+				: undefined,
 		geplantesEnde: data.project.metadata.geplantesEnde
-			? new Date(data.project.metadata.geplantesEnde)
-			: undefined
+				? new Date(data.project.metadata.geplantesEnde)
+				: undefined
 	});
 
 	const schritte: ProjectStep[] = $derived(
-		data.project.schritte.map((schritt) => ({
-			id: schritt.id,
-			titel: schritt.titel,
-			beschreibung: schritt.beschreibung,
-			startDatum: new Date(schritt.startDatum),
-			endDatum: new Date(schritt.endDatum),
-			status: schritt.status,
-			fortschritt: schritt.fortschritt,
-			material: schritt.material,
-			reihenfolge: schritt.reihenfolge,
-			bilder: schritt.bilder.map((bild) => ({
-				id: bild.id,
-				url: bild.url,
-				beschreibung: bild.beschreibung,
-				hochgeladenAm: new Date(bild.hochgeladenAm),
-				hochgeladenVon: bild.hochgeladenVon
+			data.project.schritte.map((schritt) => ({
+				id: schritt.id,
+				titel: schritt.titel,
+				beschreibung: schritt.beschreibung,
+				startDatum: new Date(schritt.startDatum),
+				endDatum: new Date(schritt.endDatum),
+				status: schritt.status as 'offen' | 'in_arbeit' | 'fertig', // Type Cast für Enum Sicherheit
+				fortschritt: schritt.fortschritt,
+				material: schritt.material,
+				reihenfolge: schritt.reihenfolge,
+				bilder: schritt.bilder.map((bild) => ({
+					id: bild.id,
+					url: bild.url,
+					beschreibung: bild.beschreibung,
+					hochgeladenAm: new Date(bild.hochgeladenAm),
+					hochgeladenVon: bild.hochgeladenVon
+				}))
 			}))
-		}))
 	);
 
 	const materialListe: Material[] = $derived(data.project.materialListe);
 
 	// Berechne Gesamtfortschritt
 	const gesamtfortschritt = $derived(
-		schritte.length > 0
-			? Math.round(schritte.reduce((sum, s) => sum + s.fortschritt, 0) / schritte.length)
-			: 0
+			schritte.length > 0
+					? Math.round(schritte.reduce((sum, s) => sum + s.fortschritt, 0) / schritte.length)
+					: 0
 	);
 
 	const fertigeSchritte = $derived(schritte.filter((s) => s.status === 'fertig').length);
@@ -61,7 +61,6 @@
 </svelte:head>
 
 <div class="min-h-screen bg-gray-100">
-	<!-- Header -->
 	<header class="bg-white shadow">
 		<div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 			<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -74,19 +73,29 @@
 					</p>
 				</div>
 				<div class="flex items-center gap-4">
-					<a
-						href="/"
-						class="inline-flex items-center rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
-					>
-						← Zurück
-					</a>
+					{#if data.isStaff}
+						<a
+								href="/admin/uebersicht"
+								class="inline-flex items-center rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+						>
+							← Zurück zur Übersicht
+						</a>
+					{:else}
+						<form action="/?/logout" method="POST">
+							<button
+									type="submit"
+									class="inline-flex items-center rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-700"
+							>
+								Abmelden
+							</button>
+						</form>
+					{/if}
 				</div>
 			</div>
 		</div>
 	</header>
 
 	<main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-		<!-- Fortschritts-Übersicht -->
 		<div class="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			<div class="rounded-xl bg-white p-6 shadow-md">
 				<p class="text-sm font-medium text-gray-500">Gesamtfortschritt</p>
@@ -95,8 +104,8 @@
 				</div>
 				<div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
 					<div
-						class="h-full bg-blue-500 transition-all duration-500"
-						style="width: {gesamtfortschritt}%"
+							class="h-full bg-blue-500 transition-all duration-500"
+							style="width: {gesamtfortschritt}%"
 					></div>
 				</div>
 			</div>
@@ -126,28 +135,28 @@
 			</div>
 		</div>
 
-		<!-- Metadaten -->
 		<div class="mb-8">
 			<ProjectMetadataCard {metadata} {materialListe} />
 		</div>
 
-		<!-- Zeitstrahl -->
 		<div>
 			<ProjectTimeline {schritte} />
 		</div>
 	</main>
 
-	<!-- Footer -->
 	<footer class="mt-auto border-t border-gray-200 bg-white py-4">
 		<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 			<p class="text-center text-sm text-gray-500">
-				Zuletzt aktualisiert: {new Date(data.project.aktualisiertAm).toLocaleDateString('de-DE', {
-					day: '2-digit',
-					month: '2-digit',
-					year: 'numeric',
-					hour: '2-digit',
-					minute: '2-digit'
-				})}
+				Zuletzt aktualisiert: {new Date(data.project.aktualisiertAm).toLocaleDateString(
+					'de-DE',
+					{
+						day: '2-digit',
+						month: '2-digit',
+						year: 'numeric',
+						hour: '2-digit',
+						minute: '2-digit'
+					}
+			)}
 			</p>
 		</div>
 	</footer>

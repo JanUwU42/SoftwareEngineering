@@ -1,122 +1,128 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+    import type { ActionData } from './$types';
+    import { enhance } from '$app/forms';
+    import { fade, slide } from 'svelte/transition';
 
-	let { data }: { data: PageData } = $props();
+    export let form: ActionData;
 
-	function formatDate(dateString: string | null): string {
-		if (!dateString) return '–';
-		return new Date(dateString).toLocaleDateString('de-DE', {
-			day: '2-digit',
-			month: '2-digit',
-			year: 'numeric'
-		});
-	}
+    let identifier = '';
+
+    // Reaktivität: Sobald ein '@' getippt wird, gehen wir davon aus, dass es ein Mitarbeiter ist.
+    $: isEmail = identifier.includes('@');
+
+    let loading = false;
 </script>
 
-<svelte:head>
-	<title>Projektmanagement – Übersicht</title>
-</svelte:head>
+<div class="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:px-8 font-sans">
+    <div class="w-full max-w-md space-y-8 bg-white p-10 rounded-2xl shadow-xl border border-slate-100">
 
-<div class="min-h-screen bg-gray-100">
-	<!-- Header -->
-	<header class="bg-white shadow">
-		<div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-			<h1 class="text-3xl font-bold tracking-tight text-gray-900">Projektmanagement</h1>
-			<p class="mt-1 text-sm text-gray-500">Übersicht aller Projekte</p>
-		</div>
-	</header>
+        <div class="text-center">
+            <h2 class="mt-2 text-3xl font-extrabold text-slate-900 tracking-tight">
+                Smart Builders
+            </h2>
+            <p class="mt-2 text-sm text-slate-600">
+                Melden Sie sich an, um Ihr Projekt zu verwalten.
+            </p>
+        </div>
 
-	<main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-		{#if data.projects.length === 0}
-			<div class="rounded-xl bg-white p-12 text-center shadow-md">
-				<svg
-					class="mx-auto h-12 w-12 text-gray-400"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-					/>
-				</svg>
-				<h3 class="mt-4 text-lg font-medium text-gray-900">Keine Projekte vorhanden</h3>
-				<p class="mt-2 text-gray-500">Es wurden noch keine Projekte angelegt.</p>
-			</div>
-		{:else}
-			<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-				{#each data.projects as project (project.id)}
-					<a
-						href="/projekt/{project.id}"
-						class="group block rounded-xl bg-white p-6 shadow-md transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-500"
-					>
-						<div class="mb-4 flex items-start justify-between">
-							<div>
-								<h2 class="text-lg font-semibold text-gray-900 group-hover:text-blue-600">
-									{project.projektbezeichnung}
-								</h2>
-								<p class="text-sm text-gray-500">{project.kundenname}</p>
-							</div>
-							<span
-								class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800"
-							>
-								{project.auftragsnummer}
-							</span>
-						</div>
+        <form
+                method="POST"
+                action="?/login" use:enhance={() => {
+				loading = true;
+				return async ({ update }) => {
+					loading = false;
+					update();
+				};
+			}}
+                class="mt-8 space-y-6"
+        >
 
-						<div class="mb-4 text-sm text-gray-600">
-							<div class="flex items-center gap-1">
-								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-									/>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-									/>
-								</svg>
-								<span>{project.ort}</span>
-							</div>
-							<div class="mt-1 flex items-center gap-1">
-								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-									/>
-								</svg>
-								<span
-									>{formatDate(project.geplanterStart)} – {formatDate(project.geplantesEnde)}</span
-								>
-							</div>
-						</div>
+            {#if form?.invalid}
+                <div transition:slide class="rounded-md bg-red-50 p-4 border-l-4 border-red-500">
+                    <div class="flex">
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-red-800">Anmeldung fehlgeschlagen</h3>
+                            <div class="mt-2 text-sm text-red-700">
+                                {#if form.type === 'staff'}
+                                    E-Mail oder Passwort ist ungültig.
+                                {:else}
+                                    Auftragsnummer oder Nachname nicht korrekt.
+                                {/if}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {/if}
 
-						<div>
-							<div class="mb-1 flex justify-between text-sm">
-								<span class="text-gray-600">Fortschritt</span>
-								<span class="font-medium text-gray-900">{project.fortschritt}%</span>
-							</div>
-							<div class="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-								<div
-									class="h-full bg-blue-500 transition-all duration-300"
-									style="width: {project.fortschritt}%"
-								></div>
-							</div>
-							<p class="mt-1 text-xs text-gray-500">
-								{project.fertigeSchritte} von {project.gesamtSchritte} Schritten abgeschlossen
-							</p>
-						</div>
-					</a>
-				{/each}
-			</div>
-		{/if}
-	</main>
+            <div class="rounded-md shadow-sm -space-y-px">
+
+                <div class="relative mb-4">
+                    <label for="identifier" class="block text-sm font-medium text-slate-700 mb-1">
+                        E-Mail oder Auftragsnummer
+                    </label>
+                    <input
+                            id="identifier"
+                            name="identifier"
+                            type="text"
+                            bind:value={identifier}
+                            required
+                            class="appearance-none relative block w-full px-3 py-3 border border-slate-300 placeholder-slate-400 text-slate-900 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm transition-all"
+                            placeholder="z.B. max@smartbuilders.de oder 2024-AB-123"
+                    />
+                </div>
+
+                <div class="relative">
+                    <label for="secret" class="block text-sm font-medium text-slate-700 mb-1">
+                        {#if isEmail}
+                            <span transition:fade>Passwort</span>
+                        {:else}
+                            <span transition:fade>Nachname</span>
+                        {/if}
+                    </label>
+
+                    <input
+                            id="secret"
+                            name="secret"
+                            type={isEmail ? 'password' : 'text'}
+                            required
+                            class="appearance-none relative block w-full px-3 py-3 border border-slate-300 placeholder-slate-400 text-slate-900 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm transition-all"
+                            placeholder={isEmail ? '••••••••' : 'Ihr Nachname'}
+                    />
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-slate-500 px-1">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block w-2 h-2 rounded-full {isEmail ? 'bg-indigo-500' : 'bg-slate-300'}"></span>
+                    <span>Mitarbeiter-Login</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span>Kunden-Login</span>
+                    <span class="inline-block w-2 h-2 rounded-full {!isEmail ? 'bg-green-500' : 'bg-slate-300'}"></span>
+                </div>
+            </div>
+
+            <div>
+                <button
+                        type="submit"
+                        disabled={loading}
+                        class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                    {#if loading}
+                        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Wird angemeldet...
+                    {:else}
+                        Anmelden
+                    {/if}
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="absolute bottom-4 text-center text-xs text-slate-400 w-full">
+        &copy; 2026 Smart Builders GmbH
+    </div>
 </div>
