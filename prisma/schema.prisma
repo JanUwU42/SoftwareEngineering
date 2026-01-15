@@ -7,12 +7,21 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  ADMIN
+  INNENDIENST
+  HANDWERKER
+}
 
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
   passwordHash String
-  role         String    @default("HANDWERKER")
+  vorname      String
+  nachname     String
+  erstelltAm   DateTime  @default(now())
+  role         Role      @default(HANDWERKER)
+  projekte     Projekt[]
   sessions     Session[]
 }
 
@@ -40,6 +49,7 @@ model Projekt {
   kundenname          String
   projektbezeichnung  String
   projektbeschreibung String?  @db.Text
+  mitarbeiter         User[]
 
   geplanterStart      DateTime
   geplantesEnde       DateTime
