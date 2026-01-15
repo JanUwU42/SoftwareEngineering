@@ -2,12 +2,16 @@
     import type { ActionData } from './$types';
     import { enhance } from '$app/forms';
     import { fade, slide } from 'svelte/transition';
+    import { page } from '$app/stores';
 
     export let form: ActionData;
 
     let identifier = '';
 
-    // Reaktivität: Sobald ein '@' getippt wird, gehen wir davon aus, dass es ein Mitarbeiter ist.
+    // Check if user just reset their password
+    $: passwordResetSuccess = $page.url.searchParams.get('passwordReset') === 'success';
+
+    // Reaktivitaet: Sobald ein '@' getippt wird, gehen wir davon aus, dass es ein Mitarbeiter ist.
     $: isEmail = identifier.includes('@');
 
     let loading = false;
@@ -28,14 +32,32 @@
         <form
                 method="POST"
                 action="?/login" use:enhance={() => {
-				loading = true;
-				return async ({ update }) => {
-					loading = false;
-					update();
-				};
-			}}
+                loading = true;
+                return async ({ update }) => {
+                    loading = false;
+                    update();
+                };
+            }}
                 class="mt-8 space-y-6"
         >
+
+            {#if passwordResetSuccess}
+                <div transition:slide class="rounded-md bg-green-50 p-4 border-l-4 border-green-500">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-green-800">Passwort geaendert!</h3>
+                            <div class="mt-2 text-sm text-green-700">
+                                Ihr Passwort wurde erfolgreich zurueckgesetzt. Sie koennen sich jetzt mit Ihrem neuen Passwort anmelden.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {/if}
 
             {#if form?.invalid}
                 <div transition:slide class="rounded-md bg-red-50 p-4 border-l-4 border-red-500">
@@ -44,7 +66,7 @@
                             <h3 class="text-sm font-medium text-red-800">Anmeldung fehlgeschlagen</h3>
                             <div class="mt-2 text-sm text-red-700">
                                 {#if form.type === 'staff'}
-                                    E-Mail oder Passwort ist ungültig.
+                                    E-Mail oder Passwort ist ungueltig.
                                 {:else}
                                     Auftragsnummer oder Nachname nicht korrekt.
                                 {/if}
@@ -86,10 +108,18 @@
                             type={isEmail ? 'password' : 'text'}
                             required
                             class="appearance-none relative block w-full px-3 py-3 border border-slate-300 placeholder-slate-400 text-slate-900 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm transition-all"
-                            placeholder={isEmail ? '••••••••' : 'Ihr Nachname'}
+                            placeholder={isEmail ? '********' : 'Ihr Nachname'}
                     />
                 </div>
             </div>
+
+            {#if isEmail}
+                <div class="text-right">
+                    <a href="/passwort-vergessen" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+                        Passwort vergessen?
+                    </a>
+                </div>
+            {/if}
 
             <div class="flex items-center justify-between text-xs text-slate-500 px-1">
                 <div class="flex items-center gap-2">
@@ -123,6 +153,6 @@
     </div>
 
     <div class="absolute bottom-4 text-center text-xs text-slate-400 w-full">
-        &copy; 2026 Smart Builders GmbH
+        2026 Smart Builders GmbH
     </div>
 </div>
