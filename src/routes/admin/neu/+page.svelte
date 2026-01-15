@@ -14,9 +14,22 @@
 		ende: string;
 	}
 
-	let schritte = $state<StepForm[]>(
-		form?.values?.schritte ?? []
-	);
+	// Helper to safely access field-specific errors
+	function getFieldError(field: string): string | undefined {
+		const errors = form?.errors;
+		if (!errors || typeof errors !== 'object') return undefined;
+		if ('general' in errors && Object.keys(errors).length === 1) return undefined;
+		return (errors as Record<string, string>)[field];
+	}
+
+	let schritte = $state<StepForm[]>([]);
+
+	// Initialize schritte from form values when form changes
+	$effect(() => {
+		if (form?.values?.schritte) {
+			schritte = form.values.schritte;
+		}
+	});
 
 	function addSchritt() {
 		schritte = [...schritte, { titel: '', beschreibung: '', start: '', ende: '' }];
@@ -94,7 +107,7 @@
 							<input
 								type="text"
 								id="auftragsnummer"
-								value={data.nextAuftragsnummer}
+								value={(data as { nextAuftragsnummer: string }).nextAuftragsnummer}
 								readonly
 								class="block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-600 shadow-sm cursor-not-allowed"
 							/>
@@ -118,8 +131,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.kundenname}
-							<p class="mt-1 text-sm text-red-600">{form.errors.kundenname}</p>
+						{#if getFieldError('kundenname')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('kundenname')}</p>
 						{/if}
 					</div>
 
@@ -136,8 +149,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.projektbezeichnung}
-							<p class="mt-1 text-sm text-red-600">{form.errors.projektbezeichnung}</p>
+						{#if getFieldError('projektbezeichnung')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('projektbezeichnung')}</p>
 						{/if}
 					</div>
 
@@ -166,8 +179,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.geplanterStart}
-							<p class="mt-1 text-sm text-red-600">{form.errors.geplanterStart}</p>
+						{#if getFieldError('geplanterStart')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('geplanterStart')}</p>
 						{/if}
 					</div>
 
@@ -183,8 +196,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.geplantesEnde}
-							<p class="mt-1 text-sm text-red-600">{form.errors.geplantesEnde}</p>
+						{#if getFieldError('geplantesEnde')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('geplantesEnde')}</p>
 						{/if}
 					</div>
 				</div>
@@ -208,8 +221,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.strasse}
-							<p class="mt-1 text-sm text-red-600">{form.errors.strasse}</p>
+						{#if getFieldError('strasse')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('strasse')}</p>
 						{/if}
 					</div>
 
@@ -226,8 +239,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.hausnummer}
-							<p class="mt-1 text-sm text-red-600">{form.errors.hausnummer}</p>
+						{#if getFieldError('hausnummer')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('hausnummer')}</p>
 						{/if}
 					</div>
 
@@ -244,8 +257,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.plz}
-							<p class="mt-1 text-sm text-red-600">{form.errors.plz}</p>
+						{#if getFieldError('plz')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('plz')}</p>
 						{/if}
 					</div>
 
@@ -262,8 +275,8 @@
 							required
 							class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 						/>
-						{#if form?.errors?.ort}
-							<p class="mt-1 text-sm text-red-600">{form.errors.ort}</p>
+						{#if getFieldError('ort')}
+							<p class="mt-1 text-sm text-red-600">{getFieldError('ort')}</p>
 						{/if}
 					</div>
 				</div>

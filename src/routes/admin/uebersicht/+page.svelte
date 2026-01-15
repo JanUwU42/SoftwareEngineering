@@ -15,9 +15,10 @@
 	}
 
 	// Rollen-Checks für die UI
-	const isAdmin = data.userRole === 'ADMIN';
-	const isInnendienst = data.userRole === 'INNENDIENST';
-	const isHandwerker = data.userRole === 'HANDWERKER';
+	// Use $derived to track changes to data
+	const userRole = $derived((data as unknown as { userRole: string }).userRole);
+	const isAdmin = $derived(userRole === 'ADMIN');
+	const isHandwerker = $derived(userRole === 'HANDWERKER');
 </script>
 
 <svelte:head>
@@ -33,7 +34,7 @@
 					<p class="mt-1 text-sm text-gray-500">
 						Willkommen zurück!
 						<span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800 ml-2">
-                        {data.userRole}
+                        {userRole}
                     </span>
 					</p>
 				</div>
@@ -74,7 +75,7 @@
 					</a>
 				{/if}
 
-				<a href="#" class="group relative flex items-center gap-4 rounded-xl bg-white p-6 shadow-sm hover:shadow-md hover:ring-2 hover:ring-orange-500 transition-all">
+				<a href="/admin/material" class="group relative flex items-center gap-4 rounded-xl bg-white p-6 shadow-sm hover:shadow-md hover:ring-2 hover:ring-orange-500 transition-all">
 					<div class="flex h-12 w-12 items-center justify-center rounded-full bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white transition-colors">
 						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
 							<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
@@ -119,10 +120,7 @@
 		{:else}
 			<div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 				{#each data.projects as project (project.id)}
-					<a
-							href="/projekt/{project.id}"
-							class="group block rounded-xl bg-white p-6 shadow-md transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-500"
-					>
+					<a href="/projekt/{project.id}" class="group block rounded-xl bg-white p-6 shadow-md transition-all hover:shadow-lg hover:ring-2 hover:ring-blue-500">
 						<div class="mb-4 flex items-start justify-between">
 							<div>
 								<h2 class="text-lg font-semibold text-gray-900 group-hover:text-blue-600 line-clamp-1">
