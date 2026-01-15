@@ -19,6 +19,11 @@
         editModal.showModal();
     }
 
+    // Helper: Prüft für die Checkboxen, ob der User das Projekt schon hat
+    function hasProject(user: any, projectId: string) {
+        return user?.projekte?.some((p: any) => p.id === projectId) ?? false;
+    }
+
     function formatDate(date: Date) {
         return new Date(date).toLocaleDateString('de-DE', {
             day: '2-digit', month: '2-digit', year: 'numeric'
@@ -69,10 +74,12 @@
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rolle</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Projekte</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Erstellt am</th>
                         <th scope="col" class="relative px-6 py-3"><span class="sr-only">Aktionen</span></th>
                     </tr>
                     </thead>
+
                     <tbody class="bg-white divide-y divide-gray-200">
                     {#each data.users as user (user.id)}
                         <tr class="hover:bg-gray-50 transition-colors">
@@ -83,16 +90,35 @@
                                 {user.email}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {getRoleBadge(user.role)}">
-                                        {user.role}
-                                    </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border {getRoleBadge(user.role)}">
+                                    {user.role}
+                                </span>
                             </td>
+
+                            <td class="px-6 py-4 text-sm text-gray-500">
+                                {#if user.role === 'HANDWERKER'}
+                                    {#if user.projekte.length > 0}
+                                        <div class="flex flex-wrap gap-1">
+                                            {#each user.projekte as p}
+                                                <span class="inline-flex items-center rounded-md bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">
+                                                    {p.projektbezeichnung}
+                                                </span>
+                                            {/each}
+                                        </div>
+                                    {:else}
+                                        <span class="text-gray-400 italic text-xs">– Keine –</span>
+                                    {/if}
+                                {:else}
+                                    <span class="text-gray-300 text-xs">n/a</span>
+                                {/if}
+                            </td>
+
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                 {formatDate(user.erstelltAm)}
                             </td>
+
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 <button onclick={() => openEdit(user)} class="text-blue-600 hover:text-blue-900 mr-4">Bearbeiten</button>
-
                                 <form action="?/deleteUser" method="POST" class="inline-block" onsubmit={(e) => !confirm('Benutzer wirklich löschen?') && e.preventDefault()}>
                                     <input type="hidden" name="userId" value={user.id} />
                                     <button type="submit" class="text-red-600 hover:text-red-900">Löschen</button>
@@ -111,7 +137,6 @@
     <div class="p-6">
         <h3 class="text-lg font-bold mb-4">Neuen Benutzer anlegen</h3>
         <form action="?/createUser" method="POST" class="space-y-4">
-
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label for="new-vorname" class="block text-sm font-medium text-gray-700">Vorname</label>
@@ -122,7 +147,6 @@
                     <input id="new-nachname" type="text" name="nachname" required class="w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
                 </div>
             </div>
-
             <div>
                 <label for="new-email" class="block text-sm font-medium text-gray-700">Email</label>
                 <input id="new-email" type="email" name="email" required class="w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
@@ -147,7 +171,7 @@
     </div>
 </dialog>
 
-<dialog bind:this={editModal} class="m-auto rounded-xl shadow-2xl border-0 p-0 w-full max-w-md backdrop:bg-black/50">
+<dialog bind:this={editModal} class="m-auto rounded-xl shadow-2xl border-0 p-0 w-full max-w-lg backdrop:bg-black/50">
     {#if editingUser}
         <div class="p-6">
             <h3 class="text-lg font-bold mb-4">Benutzer bearbeiten</h3>
@@ -172,12 +196,39 @@
 
                 <div>
                     <label for="edit-role" class="block text-sm font-medium text-gray-700">Rolle</label>
-                    <select id="edit-role" name="role" value={editingUser.role} class="w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                    <select id="edit-role" name="role" bind:value={editingUser.role} class="w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                         <option value="HANDWERKER">Handwerker</option>
                         <option value="INNENDIENST">Innendienst</option>
                         <option value="ADMIN">Admin</option>
                     </select>
                 </div>
+
+                {#if editingUser.role === 'HANDWERKER'}
+                    <div class="border rounded-md p-3 bg-gray-50">
+                        <p class="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Zugeordnete Projekte</p>
+
+                        <div class="max-h-40 overflow-y-auto space-y-1">
+                            {#each data.allProjects as project}
+                                <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1.5 rounded transition-colors">
+                                    <input
+                                            type="checkbox"
+                                            name="projectIds"
+                                            value={project.id}
+                                            checked={hasProject(editingUser, project.id)}
+                                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <div class="flex flex-col">
+                                        <span class="text-sm text-gray-700 font-medium">{project.projektbezeichnung}</span>
+                                        <span class="text-xs text-gray-400">{project.auftragsnummer}</span>
+                                    </div>
+                                </label>
+                            {/each}
+                            {#if data.allProjects.length === 0}
+                                <p class="text-xs text-gray-400 italic">Keine Projekte verfügbar.</p>
+                            {/if}
+                        </div>
+                    </div>
+                {/if}
 
                 <div class="pt-2 border-t mt-2">
                     <label for="edit-pw" class="block text-sm font-medium text-gray-700">Neues Passwort (optional)</label>
