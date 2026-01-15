@@ -10,8 +10,37 @@ export const load: PageServerLoad = async ({ locals }) => {
     }
 
     // 2. Materialien laden
-    const materials = await prisma.material.findMany({
+    const materialsRaw = await prisma.material.findMany({
         orderBy: { name: 'asc' }
+    });
+
+    // 3. Globale Reservierungen laden (Alles in nicht-fertigen Schritten)
+    const reservations = await prisma.materialBedarf.groupBy({
+        by: ['materialId'],
+        where: {
+            schritt: { status: { not: 'fertig' } } // Nur laufende Projekte reservieren
+        },
+        _sum: { menge: true }
+    });
+
+    // Map für schnellen Zugriff: ID -> Menge
+    const reservationMap = new Map<string, number>();
+    reservations.forEach(r => reservationMap.set(r.materialId, r._sum.menge ?? 0));
+
+    // 4. Daten zusammenfügen
+    const materials = materialsRaw.map(m => {
+        const physisch = Number(m.bestand); // Was liegt im Regal (DB)
+        const reserviert = reservationMap.get(m.id) ?? 0; // Was ist verplant
+        const verfuegbar = physisch - reserviert; // Was ist "frei"
+
+        return {
+            ...m,
+            bestand: physisch,
+            reserviert,
+            verfuegbar,
+            mussBestellen: verfuegbar < 0,
+            bestellMenge: verfuegbar < 0 ? Math.abs(verfuegbar) : 0
+        };
     });
 
     return { materials };
@@ -25,27 +54,19 @@ export const actions: Actions = {
         const data = await request.formData();
         const name = data.get('name') as string;
         const einheit = data.get('einheit') as string;
-
-        // Bestand parsen (Komma zu Punkt für deutsche Eingabe)
         const rawBestand = (data.get('bestand') as string)?.replace(',', '.') || '0';
-        const bestand = parseFloat(rawBestand);
+        const bestand = Math.max(0, parseFloat(rawBestand)); // Bestand darf nicht < 0 sein beim Anlegen
 
-        if (!name || !einheit) {
-            return fail(400, { message: 'Name und Einheit sind Pflichtfelder.' });
-        }
+        if (!name || !einheit) return fail(400, { message: 'Pflichtfelder fehlen.' });
 
         await prisma.material.create({
-            data: {
-                name,
-                einheit,
-                bestand: isNaN(bestand) ? 0 : bestand
-            }
+            data: { name, einheit, bestand: isNaN(bestand) ? 0 : bestand }
         });
 
         return { success: true };
     },
 
-    // --- BEARBEITEN (Hier fehlte vorher der Bestand) ---
+    // --- BEARBEITEN (Lagerbestand Korrektur) ---
     updateMaterial: async ({ request, locals }) => {
         if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
 
@@ -53,21 +74,14 @@ export const actions: Actions = {
         const id = data.get('id') as string;
         const name = data.get('name') as string;
         const einheit = data.get('einheit') as string;
-
-        // WICHTIG: Bestand auch beim Update auslesen!
         const rawBestand = (data.get('bestand') as string)?.replace(',', '.') || '0';
-        const bestand = parseFloat(rawBestand);
+        const bestand = Math.max(0, parseFloat(rawBestand)); // Bestand nicht < 0
 
-        if (!id || !name) return fail(400, { message: 'Daten unvollständig.' });
+        if (!id || !name) return fail(400);
 
         await prisma.material.update({
             where: { id },
-            data: {
-                name,
-                einheit,
-                // Hier wird der neue Bestand in die DB geschrieben
-                bestand: isNaN(bestand) ? 0 : bestand
-            }
+            data: { name, einheit, bestand: isNaN(bestand) ? 0 : bestand }
         });
 
         return { success: true };
@@ -76,15 +90,16 @@ export const actions: Actions = {
     // --- LÖSCHEN ---
     deleteMaterial: async ({ request, locals }) => {
         if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
-
         const data = await request.formData();
         const id = data.get('id') as string;
 
         try {
-            await prisma.material.delete({ where: { id } });
+            await prisma.$transaction([
+                prisma.materialBedarf.deleteMany({ where: { materialId: id } }),
+                prisma.material.delete({ where: { id } })
+            ]);
         } catch (error) {
-            // Fehler fangen, falls Material in Verwendung ist (Foreign Key Constraint)
-            return fail(400, { message: 'Material kann nicht gelöscht werden, da es in Projekten verwendet wird.' });
+            return fail(500, { message: 'Fehler beim Löschen.' });
         }
         return { success: true };
     }

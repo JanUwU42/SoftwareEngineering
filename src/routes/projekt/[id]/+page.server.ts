@@ -58,17 +58,31 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	if (!p) throw error(404, 'Projekt nicht gefunden');
 
-	// 3. MATERIAL LOGIK: AGGREGATION & LAGER-CHECK
-	// Wir fassen gleiche Materialien aus verschiedenen Schritten zusammen
-	const materialMap = new Map<string, { id: string; name: string; menge: number; einheit: string; bestand: number; bemerkung?: string }>();
+	// 3. GLOBALE RESERVIERUNGEN BERECHNEN
+	const activeMaterialsInProject = Array.from(new Set(p.schritte.flatMap(s => s.materialien.map(m => m.materialId))));
+
+	const reservations = await prisma.materialBedarf.groupBy({
+		by: ['materialId'],
+		where: {
+			materialId: { in: activeMaterialsInProject },
+			schritt: { status: { not: 'fertig' } }
+		},
+		_sum: { menge: true }
+	});
+
+	const reservationMap = new Map<string, number>();
+	reservations.forEach(r => reservationMap.set(r.materialId, r._sum.menge ?? 0));
+
+	// 4. MATERIAL AGGREGATION
+	const materialMap = new Map<string, { id: string; name: string; menge: number; einheit: string; bestand: number; globalReserviert: number }>();
 
 	for (const s of p.schritte) {
 		for (const m of s.materialien) {
 			if (!m.material) continue;
 
 			const menge = Number(m.menge);
-			// Das ist der aktuelle Lagerbestand in der DB (bereits reduziert um das, was wir hier verbrauchen!)
-			const bestand = Number(m.material.bestand);
+			const physischerBestand = Number(m.material.bestand);
+			const globalReserviert = reservationMap.get(m.material.id) ?? 0;
 
 			const existing = materialMap.get(m.material.id);
 			if (existing) {
@@ -79,34 +93,25 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					name: m.material.name,
 					menge: menge,
 					einheit: m.material.einheit,
-					bestand: bestand,
-					bemerkung: m.bemerkung ?? undefined
+					bestand: physischerBestand,
+					globalReserviert: globalReserviert
 				});
 			}
 		}
 	}
 
-	// BERECHNUNG: Was kommt aus Lager (Grün), was muss bestellt werden (Rot)?
+	// 5. BERECHNUNG
 	const materialListe = Array.from(materialMap.values()).map(mat => {
+		const verfuegbarNachReservierung = mat.bestand - mat.globalReserviert;
 		let mengeBestellen = 0;
-		let mengeImLager = mat.menge;
 
-		// Wenn der Bestand negativ ist (z.B. -5), bedeutet das, wir haben 5 zu viel verplant -> Nachbestellen
-		if (mat.bestand < 0) {
-			const fehlmengeGlobal = Math.abs(mat.bestand);
-
-			// Wir bestellen maximal so viel wie wir für DIESES Projekt brauchen,
-			// aber nicht mehr als insgesamt fehlt.
-			mengeBestellen = Math.min(mat.menge, fehlmengeGlobal);
-
-			// Der Rest kommt aus dem Lager (kann rechnerisch 0 sein)
-			mengeImLager = Math.max(0, mat.menge - mengeBestellen);
+		if (verfuegbarNachReservierung < 0) {
+			mengeBestellen = Math.abs(verfuegbarNachReservierung);
 		}
 
-		return { ...mat, mengeBestellen, mengeImLager };
+		return { ...mat, mengeBestellen };
 	});
 
-	// 4. STAMMDATEN LADEN (für Dropdowns)
 	const allMaterials = await prisma.material.findMany({ orderBy: { name: 'asc' } });
 
 	let availableHandwerker: any[] = [];
@@ -116,14 +121,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		pendingUpdatesCount = await prisma.handwerkerUpdate.count({ where: { schritt: { projektId: id }, status: 'ausstehend' } });
 	}
 
-	// 5. RETURN
 	return {
 		isStaff: !!locals.user,
 		userRole: locals.user?.role,
 		userId: locals.user?.id,
 		availableHandwerker,
 		pendingUpdatesCount,
-		// WICHTIG: allMaterials (mit aktuellem Bestand) für die Timeline übergeben
 		allMaterials: allMaterials.map(m => ({...m, bestand: Number(m.bestand)})),
 
 		project: {
@@ -147,8 +150,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				status: schritt.status,
 				fortschritt: schritt.fortschritt,
 				reihenfolge: schritt.reihenfolge,
-
-				// Mapping Material für Timeline (mit linkId zum Löschen)
 				material: schritt.materialien.map((m) => ({
 					id: m.material.id,
 					linkId: m.id,
@@ -157,7 +158,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					einheit: m.material.einheit,
 					bemerkung: m.bemerkung ?? undefined
 				})),
-
 				bilder: schritt.bilder.map((bild) => ({
 					id: bild.id,
 					url: `data:${bild.mimeType};base64,${Buffer.from(bild.daten).toString('base64')}`,
@@ -193,10 +193,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 };
 
 export const actions: Actions = {
-	// --- MATERIAL HINZUFÜGEN (Mit Duplikat-Check) ---
+	// 1. MATERIAL HINZUFÜGEN
 	addMaterialToStep: async ({ request, locals, params }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
-
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
 		const materialId = data.get('materialId') as string;
@@ -205,97 +204,208 @@ export const actions: Actions = {
 
 		if (!schrittId || !materialId || isNaN(menge)) return fail(400);
 
-		// 1. Check: Existiert das Material schon in diesem Schritt?
+		const schritt = await prisma.schritt.findUnique({ where: { id: schrittId } });
+		if (schritt?.status === 'fertig') return fail(400, { message: 'Schritt ist bereits fertig.' });
+
 		const existing = await prisma.materialBedarf.findUnique({
-			where: {
-				schrittId_materialId: { schrittId, materialId }
-			}
+			where: { schrittId_materialId: { schrittId, materialId } }
 		});
+		if (existing) return fail(400, { message: 'Material existiert bereits.' });
 
-		if (existing) {
-			return fail(400, { message: 'Dieses Material ist in diesem Schritt bereits vorhanden. Bitte bearbeiten Sie stattdessen die Menge.' });
-		}
+		await prisma.materialBedarf.create({ data: { schrittId, materialId, menge } });
 
-		// 2. Transaktion: Erstellen & Bestand buchen
-		await prisma.$transaction([
-			prisma.materialBedarf.create({ data: { schrittId, materialId, menge } }),
-			prisma.material.update({
-				where: { id: materialId },
-				data: { bestand: { decrement: menge } }
-			})
-		]);
-
-		await createAuditLog(locals.user.id, 'MATERIAL_HINZUGEFUEGT', { schrittId, materialId, menge }, params.id, schrittId);
+		await createAuditLog(locals.user!.id, 'MATERIAL_HINZUGEFUEGT', { schrittId, materialId, menge }, params.id, schrittId);
 		return { success: true };
 	},
-	// --- NEU: MATERIAL MENGE BEARBEITEN (Mit Lagerabgleich) ---
+
+	// 2. MATERIAL EDITIEREN
 	updateMaterialInStep: async ({ request, locals, params }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
-
 		const data = await request.formData();
-		const linkId = data.get('linkId') as string; // ID des MaterialBedarfs
+		const linkId = data.get('linkId') as string;
 		const rawMenge = (data.get('menge') as string).replace(',', '.');
 		const neueMenge = parseFloat(rawMenge);
 
 		if (!linkId || isNaN(neueMenge)) return fail(400);
 
-		// Altes Material laden, um Differenz zu berechnen
-		const alterBedarf = await prisma.materialBedarf.findUnique({ where: { id: linkId } });
-		if (!alterBedarf) return fail(404, { message: 'Eintrag nicht gefunden' });
+		const alterBedarf = await prisma.materialBedarf.findUnique({ where: { id: linkId }, include: { schritt: true } });
+		if (!alterBedarf) return fail(404);
 
-		// Differenz berechnen:
-		// Wenn alt 5 und neu 8 -> Differenz 3 -> Lager muss um 3 reduziert werden (decrement 3)
-		// Wenn alt 5 und neu 2 -> Differenz -3 -> Lager muss um -3 reduziert werden (entspricht increment 3)
-		const differenz = neueMenge - alterBedarf.menge;
+		if (alterBedarf.schritt.status === 'fertig') return fail(400, { message: 'Schritt ist bereits fertig.' });
 
-		if (differenz === 0) return { success: true }; // Keine Änderung
+		await prisma.materialBedarf.update({ where: { id: linkId }, data: { menge: neueMenge } });
 
-		await prisma.$transaction([
-			// 1. Update der Menge im Schritt
-			prisma.materialBedarf.update({
-				where: { id: linkId },
-				data: { menge: neueMenge }
-			}),
-			// 2. Anpassung des Lagerbestands um die Differenz
-			prisma.material.update({
-				where: { id: alterBedarf.materialId },
-				data: { bestand: { decrement: differenz } }
-			})
-		]);
-
-		await createAuditLog(locals.user.id, 'MATERIAL_MENGE_GEAENDERT', {
-			schrittId: alterBedarf.schrittId,
-			materialId: alterBedarf.materialId,
-			alteMenge: alterBedarf.menge,
-			neueMenge
-		}, params.id, alterBedarf.schrittId);
-
-		return { success: true, message: 'Menge aktualisiert.' };
-	},
-
-	// --- MATERIAL ENTFERNEN (FREIGEBEN) ---
-	removeMaterialFromStep: async ({ request, locals, params }) => {
-		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
-
-		const data = await request.formData();
-		const linkId = data.get('linkId') as string;
-
-		const bedarf = await prisma.materialBedarf.findUnique({ where: { id: linkId } });
-		if (!bedarf) return fail(404, { message: 'Eintrag nicht gefunden' });
-
-		await prisma.$transaction([
-			prisma.material.update({
-				where: { id: bedarf.materialId },
-				data: { bestand: { increment: bedarf.menge } }
-			}),
-			prisma.materialBedarf.delete({ where: { id: linkId } })
-		]);
-
-		await createAuditLog(locals.user.id, 'MATERIAL_ENTFERNT', { schrittId: bedarf.schrittId, materialId: bedarf.materialId, menge: bedarf.menge }, params.id, bedarf.schrittId);
+		await createAuditLog(locals.user!.id, 'MATERIAL_MENGE_GEAENDERT', { linkId, neueMenge }, params.id);
 		return { success: true };
 	},
 
+	// 3. MATERIAL ENTFERNEN
+	removeMaterialFromStep: async ({ request, locals, params }) => {
+		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
+		const data = await request.formData();
+		const linkId = data.get('linkId') as string;
 
+		const bedarf = await prisma.materialBedarf.findUnique({ where: { id: linkId }, include: { schritt: true } });
+		if (!bedarf) return fail(404);
+
+		if (bedarf.schritt.status === 'fertig') return fail(400, { message: 'Schritt ist bereits fertig.' });
+
+		await prisma.materialBedarf.delete({ where: { id: linkId } });
+
+		await createAuditLog(locals.user!.id, 'MATERIAL_ENTFERNT', { linkId }, params.id);
+		return { success: true };
+	},
+
+	// 4. SCHRITT UPDATE (Admin Direkt)
+	updateSchritt: async ({ request, locals, params }) => {
+		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) return fail(403);
+
+		const data = await request.formData();
+		const schrittId = data.get('schrittId') as string;
+		const neuerStatus = data.get('status') as SchrittStatus;
+		const fortschritt = parseInt(data.get('fortschritt') as string);
+		const start = new Date(data.get('startDatum') as string);
+		const ende = new Date(data.get('endDatum') as string);
+		const titel = data.get('titel') as string;
+
+		const alterSchritt = await prisma.schritt.findUnique({
+			where: { id: schrittId },
+			include: { materialien: { include: { material: true } } }
+		});
+
+		if (!alterSchritt) return fail(404);
+
+		// Check bei Admin: Genug Material da?
+		if (neuerStatus === 'fertig' && alterSchritt.status !== 'fertig') {
+			const missing: string[] = [];
+			for (const m of alterSchritt.materialien) {
+				if (m.material.bestand < m.menge) {
+					missing.push(`${m.material.name} (Lager: ${m.material.bestand}, Benötigt: ${m.menge})`);
+				}
+			}
+			if (missing.length > 0) {
+				return fail(400, { message: `Nicht genügend Material: ${missing.join(', ')}` });
+			}
+		}
+
+		await prisma.$transaction(async (tx) => {
+			await tx.schritt.update({
+				where: { id: schrittId },
+				data: { titel, status: neuerStatus, fortschritt, startDatum: start, endDatum: ende }
+			});
+
+			if (alterSchritt.status !== 'fertig' && neuerStatus === 'fertig') {
+				for (const m of alterSchritt.materialien) {
+					await tx.material.update({ where: { id: m.materialId }, data: { bestand: { decrement: m.menge } } });
+				}
+			}
+			else if (alterSchritt.status === 'fertig' && neuerStatus !== 'fertig') {
+				for (const m of alterSchritt.materialien) {
+					await tx.material.update({ where: { id: m.materialId }, data: { bestand: { increment: m.menge } } });
+				}
+			}
+		});
+
+		await createAuditLog(locals.user!.id, 'SCHRITT_AKTUALISIERT', { schrittId, status: neuerStatus }, params.id, schrittId);
+		return { success: true };
+	},
+
+	// 5. APPROVE UPDATE (Innendienst)
+	approveUpdate: async ({ request, locals, params }) => {
+		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
+		const data = await request.formData();
+		const updateId = data.get('updateId') as string;
+		const update = await prisma.handwerkerUpdate.findUnique({ where: { id: updateId }, include: { schritt: { include: { materialien: true } } } });
+
+		if (!update || update.status !== 'ausstehend') return fail(400);
+
+		// Check bei Approval: Genug Material da?
+		if (update.typ === 'STATUS_AENDERUNG' && update.neuerStatus === 'fertig' && update.schritt.status !== 'fertig') {
+			const missing: string[] = [];
+			for (const m of update.schritt.materialien) {
+				// Wir müssen hier das Material nochmal frisch laden für den aktuellen Bestand
+				const mat = await prisma.material.findUnique({ where: { id: m.materialId } });
+				if (mat && mat.bestand < m.menge) {
+					missing.push(`${mat.name}`);
+				}
+			}
+			if (missing.length > 0) {
+				return fail(400, { message: `Genehmigung nicht möglich: Material fehlt im Lager (${missing.join(', ')}).` });
+			}
+		}
+
+		await prisma.$transaction(async (tx) => {
+			if (update.typ === 'STATUS_AENDERUNG') {
+				await tx.schritt.update({
+					where: { id: update.schrittId },
+					data: { ...(update.neuerStatus && { status: update.neuerStatus }), ...(update.neuerFortschritt !== null && { fortschritt: update.neuerFortschritt }) }
+				});
+
+				const alterStatus = update.schritt.status;
+				const neuerStatus = update.neuerStatus;
+
+				if (neuerStatus && alterStatus !== 'fertig' && neuerStatus === 'fertig') {
+					for (const m of update.schritt.materialien) {
+						await tx.material.update({ where: { id: m.materialId }, data: { bestand: { decrement: m.menge } } });
+					}
+				}
+			}
+			else if (update.typ === 'FOTO_UPLOAD' && update.bildId) {
+				await tx.bild.update({ where: { id: update.bildId }, data: { freigegeben: true } });
+			} else if (update.typ === 'NOTIZ' && update.notizText) {
+				await tx.notiz.create({ data: { text: update.notizText, schrittId: update.schrittId, erstelltVon: update.eingereichtVon, sichtbarFuerKunde: false } });
+			}
+
+			await tx.handwerkerUpdate.update({ where: { id: updateId }, data: { status: 'genehmigt', bearbeitetVon: locals.user!.id, bearbeitetAm: new Date() } });
+		});
+		return { success: true };
+	},
+
+	// --- 6. SUBMIT UPDATE (HANDWERKER) - HIER IST DIE ÄNDERUNG ---
+	submitUpdate: async ({ request, locals, params }) => {
+		if (!locals.user) return fail(403);
+		const data = await request.formData();
+		const schrittId = data.get('schrittId') as string;
+		const neuerStatus = data.get('status') as SchrittStatus | null;
+		const neuerFortschritt = data.get('fortschritt') as string | null;
+
+		// --- NEU: PRÜFUNG DES LAGERBESTANDS VOR DEM ANTRAG ---
+		if (neuerStatus === 'fertig') {
+			const schritt = await prisma.schritt.findUnique({
+				where: { id: schrittId },
+				include: { materialien: { include: { material: true } } }
+			});
+
+			if (schritt) {
+				const missing: string[] = [];
+				for (const m of schritt.materialien) {
+					if (m.material.bestand < m.menge) {
+						missing.push(`${m.material.name} (Lager: ${m.material.bestand}, Benötigt: ${m.menge})`);
+					}
+				}
+
+				if (missing.length > 0) {
+					return fail(400, {
+						message: `Antrag abgelehnt: Material fehlt im Lager! (${missing.join(', ')}). Bitte Rücksprache mit Innendienst.`
+					});
+				}
+			}
+		}
+		// -----------------------------------------------------
+
+		await prisma.handwerkerUpdate.create({
+			data: {
+				typ: 'STATUS_AENDERUNG',
+				schrittId,
+				neuerStatus,
+				neuerFortschritt: neuerFortschritt ? parseInt(neuerFortschritt) : null,
+				eingereichtVon: locals.user!.id
+			}
+		});
+		return { success: true, message: 'Update eingereicht.' };
+	},
+
+	// --- RESTLICHE ACTIONS ---
 	uploadBild: async ({ request, locals, params }) => {
 		if (!locals.user) return fail(403);
 		const data = await request.formData();
@@ -306,9 +416,9 @@ export const actions: Actions = {
 		if (!schrittId || !file || file.size === 0) return fail(400);
 		const buffer = Buffer.from(await file.arrayBuffer());
 
-		const user = await prisma.user.findUnique({ where: { id: locals.user.id } });
+		const user = await prisma.user.findUnique({ where: { id: locals.user!.id } });
 		const uploaderName = user ? `${user.vorname} ${user.nachname}` : 'Unbekannt';
-		const isHandwerker = locals.user.role === Role.HANDWERKER;
+		const isHandwerker = locals.user!.role === Role.HANDWERKER;
 
 		const bild = await prisma.bild.create({
 			data: {
@@ -318,12 +428,12 @@ export const actions: Actions = {
 		});
 
 		if (isHandwerker) {
-			await prisma.handwerkerUpdate.create({ data: { typ: 'FOTO_UPLOAD', schrittId, bildId: bild.id, eingereichtVon: locals.user.id } });
-			await createAuditLog(locals.user.id, 'FOTO_HOCHGELADEN_PENDING', { bildId: bild.id, schrittId }, params.id, schrittId);
+			await prisma.handwerkerUpdate.create({ data: { typ: 'FOTO_UPLOAD', schrittId, bildId: bild.id, eingereichtVon: locals.user!.id } });
+			await createAuditLog(locals.user!.id, 'FOTO_HOCHGELADEN_PENDING', { bildId: bild.id, schrittId }, params.id, schrittId);
 			return { success: true, message: 'Wartet auf Freigabe.' };
 		}
 
-		await createAuditLog(locals.user.id, 'FOTO_HOCHGELADEN', { bildId: bild.id, schrittId }, params.id, schrittId);
+		await createAuditLog(locals.user!.id, 'FOTO_HOCHGELADEN', { bildId: bild.id, schrittId }, params.id, schrittId);
 		return { success: true };
 	},
 
@@ -332,31 +442,7 @@ export const actions: Actions = {
 		const data = await request.formData();
 		const bildId = data.get('bildId') as string;
 		await prisma.bild.delete({ where: { id: bildId } });
-		await createAuditLog(locals.user.id, 'FOTO_GELOESCHT', { bildId }, params.id);
-		return { success: true };
-	},
-
-	submitUpdate: async ({ request, locals, params }) => {
-		if (!locals.user) return fail(403);
-		const data = await request.formData();
-		const schrittId = data.get('schrittId') as string;
-		const neuerStatus = data.get('status') as SchrittStatus | null;
-		const neuerFortschritt = data.get('fortschritt') as string | null;
-
-		if (locals.user.role === Role.HANDWERKER) {
-			await prisma.handwerkerUpdate.create({
-				data: {
-					typ: 'STATUS_AENDERUNG', schrittId, neuerStatus,
-					neuerFortschritt: neuerFortschritt ? parseInt(neuerFortschritt) : null,
-					eingereichtVon: locals.user.id
-				}
-			});
-			return { success: true, message: 'Update eingereicht.' };
-		}
-		await prisma.schritt.update({
-			where: { id: schrittId },
-			data: { ...(neuerStatus && { status: neuerStatus }), ...(neuerFortschritt && { fortschritt: parseInt(neuerFortschritt) }) }
-		});
+		await createAuditLog(locals.user!.id, 'FOTO_GELOESCHT', { bildId }, params.id);
 		return { success: true };
 	},
 
@@ -367,14 +453,10 @@ export const actions: Actions = {
 		const text = data.get('text') as string;
 
 		if (locals.user.role === Role.HANDWERKER) {
-			await prisma.handwerkerUpdate.create({
-				data: { typ: 'NOTIZ', schrittId, notizText: text, eingereichtVon: locals.user.id }
-			});
-			return { success: true, message: 'Notiz eingereicht.' };
+			await prisma.handwerkerUpdate.create({ data: { typ: 'NOTIZ', schrittId, notizText: text, eingereichtVon: locals.user!.id } });
+		} else {
+			await prisma.notiz.create({ data: { text, schrittId, erstelltVon: locals.user!.id, sichtbarFuerKunde: false } });
 		}
-		await prisma.notiz.create({
-			data: { text, schrittId, erstelltVon: locals.user.id, sichtbarFuerKunde: false }
-		});
 		return { success: true };
 	},
 
@@ -387,35 +469,14 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	approveUpdate: async ({ request, locals, params }) => {
-		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
-		const data = await request.formData();
-		const updateId = data.get('updateId') as string;
-		const update = await prisma.handwerkerUpdate.findUnique({ where: { id: updateId } });
-		if (!update || update.status !== 'ausstehend') return fail(400);
-
-		if (update.typ === 'STATUS_AENDERUNG') {
-			await prisma.schritt.update({
-				where: { id: update.schrittId },
-				data: { ...(update.neuerStatus && { status: update.neuerStatus }), ...(update.neuerFortschritt !== null && { fortschritt: update.neuerFortschritt }) }
-			});
-		} else if (update.typ === 'FOTO_UPLOAD' && update.bildId) {
-			await prisma.bild.update({ where: { id: update.bildId }, data: { freigegeben: true } });
-		} else if (update.typ === 'NOTIZ' && update.notizText) {
-			await prisma.notiz.create({ data: { text: update.notizText, schrittId: update.schrittId, erstelltVon: update.eingereichtVon, sichtbarFuerKunde: false } });
-		}
-
-		await prisma.handwerkerUpdate.update({ where: { id: updateId }, data: { status: 'genehmigt', bearbeitetVon: locals.user.id, bearbeitetAm: new Date() } });
-		return { success: true };
-	},
-
 	rejectUpdate: async ({ request, locals, params }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
 		const updateId = data.get('updateId') as string;
 		const update = await prisma.handwerkerUpdate.findUnique({ where: { id: updateId } });
 		if (update?.typ === 'FOTO_UPLOAD' && update.bildId) await prisma.bild.delete({ where: { id: update.bildId } });
-		await prisma.handwerkerUpdate.update({ where: { id: updateId }, data: { status: 'abgelehnt', bearbeitetVon: locals.user.id, bearbeitetAm: new Date() } });
+
+		await prisma.handwerkerUpdate.update({ where: { id: updateId }, data: { status: 'abgelehnt', bearbeitetVon: locals.user!.id, bearbeitetAm: new Date() } });
 		return { success: true };
 	},
 
@@ -460,20 +521,6 @@ export const actions: Actions = {
 				projektId: params.id!, titel: data.get('titel') as string, beschreibung: data.get('beschreibung') as string,
 				startDatum: new Date(data.get('startDatum') as string), endDatum: new Date(data.get('endDatum') as string),
 				reihenfolge: (lastStep?.reihenfolge ?? 0) + 1, status: 'offen'
-			}
-		});
-		return { success: true };
-	},
-
-	updateSchritt: async ({ request, locals }) => {
-		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
-		const data = await request.formData();
-		await prisma.schritt.update({
-			where: { id: data.get('schrittId') as string },
-			data: {
-				titel: data.get('titel') as string, status: data.get('status') as SchrittStatus,
-				fortschritt: parseInt(data.get('fortschritt') as string),
-				startDatum: new Date(data.get('startDatum') as string), endDatum: new Date(data.get('endDatum') as string)
 			}
 		});
 		return { success: true };

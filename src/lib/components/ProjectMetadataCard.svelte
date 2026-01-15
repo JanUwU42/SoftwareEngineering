@@ -10,13 +10,8 @@
 
 	function formatDate(date: Date | undefined): string {
 		if (!date) return '–';
-		return date.toLocaleDateString('de-DE', {
-			day: '2-digit',
-			month: '2-digit',
-			year: 'numeric'
-		});
+		return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 	}
-
 	function formatAddress(addr: ProjectMetadata['projektadresse']): string {
 		return `${addr.strasse} ${addr.hausnummer}, ${addr.plz} ${addr.ort}`;
 	}
@@ -27,42 +22,13 @@
 
 	<div class="grid gap-6 md:grid-cols-2">
 		<div class="space-y-4">
-			<div>
-				<span class="text-sm font-medium text-gray-500">Auftragsnummer</span>
-				<p class="text-lg font-semibold text-gray-900">{metadata.auftragsnummer}</p>
-			</div>
-
-			<div>
-				<span class="text-sm font-medium text-gray-500">Kundenname</span>
-				<p class="text-lg font-semibold text-gray-900">{metadata.kundenname}</p>
-			</div>
-
-			<div>
-				<span class="text-sm font-medium text-gray-500">Projektadresse</span>
-				<p class="text-lg text-gray-900">{formatAddress(metadata.projektadresse)}</p>
-			</div>
-
-			<div>
-				<span class="text-sm font-medium text-gray-500">Projektbezeichnung</span>
-				<p class="text-lg font-semibold text-gray-900">{metadata.projektbezeichnung}</p>
-			</div>
-
-			{#if metadata.projektbeschreibung}
-				<div>
-					<span class="text-sm font-medium text-gray-500">Beschreibung</span>
-					<p class="text-gray-700">{metadata.projektbeschreibung}</p>
-				</div>
-			{/if}
-
+			<div><span class="text-sm font-medium text-gray-500">Kundenname</span><p class="text-lg font-semibold text-gray-900">{metadata.kundenname}</p></div>
+			<div><span class="text-sm font-medium text-gray-500">Projektbezeichnung</span><p class="text-lg font-semibold text-gray-900">{metadata.projektbezeichnung}</p></div>
+			<div><span class="text-sm font-medium text-gray-500">Adresse</span><p class="text-gray-900">{formatAddress(metadata.projektadresse)}</p></div>
+			{#if metadata.projektbeschreibung}<div><span class="text-sm font-medium text-gray-500">Beschreibung</span><p class="text-gray-700">{metadata.projektbeschreibung}</p></div>{/if}
 			<div class="flex gap-8">
-				<div>
-					<span class="text-sm font-medium text-gray-500">Geplanter Start</span>
-					<p class="text-lg text-gray-900">{formatDate(metadata.geplanterStart)}</p>
-				</div>
-				<div>
-					<span class="text-sm font-medium text-gray-500">Geplantes Ende</span>
-					<p class="text-lg text-gray-900">{formatDate(metadata.geplantesEnde)}</p>
-				</div>
+				<div><span class="text-sm font-medium text-gray-500">Start</span><p class="text-lg text-gray-900">{formatDate(metadata.geplanterStart)}</p></div>
+				<div><span class="text-sm font-medium text-gray-500">Ende</span><p class="text-lg text-gray-900">{formatDate(metadata.geplantesEnde)}</p></div>
 			</div>
 		</div>
 
@@ -75,33 +41,22 @@
 						<tr>
 							<th class="px-4 py-2 text-left font-medium text-gray-600">Material</th>
 							<th class="px-4 py-2 text-right font-medium text-gray-600">Menge</th>
-							<th class="px-4 py-2 text-right font-medium text-gray-600">Status</th>
+							<th class="px-4 py-2 text-right font-medium text-gray-600"></th>
 						</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100">
 						{#each materialListe as material (material.id)}
 							<tr class="hover:bg-gray-50">
-								<td class="px-4 py-2 align-top">
-									<span class="font-medium text-gray-900">{material.name}</span>
-									{#if material.bemerkung}
-										<span class="block text-xs text-gray-500">{material.bemerkung}</span>
-									{/if}
-								</td>
+								<td class="px-4 py-2 align-top"><span class="font-medium text-gray-900">{material.name}</span></td>
 								<td class="px-4 py-2 text-right align-top text-gray-900">{material.menge} {material.einheit}</td>
 								<td class="px-4 py-2 text-right align-top">
-									<div class="flex flex-col items-end gap-1">
-										{#if (material.mengeImLager ?? 0) > 0}
-                                        <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-                                            Lager: {material.mengeImLager}
-                                        </span>
-										{/if}
-
-										{#if (material.mengeBestellen ?? 0) > 0}
-                                        <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700 ring-1 ring-inset ring-red-600/20">
-                                            Bestellen: {material.mengeBestellen}
-                                        </span>
-										{/if}
-									</div>
+									{#if (material.mengeBestellen ?? 0) > 0}
+                                    <span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700 ring-1 ring-inset ring-red-600/20">
+                                        Nachbestellen: {material.mengeBestellen}
+                                    </span>
+									{:else}
+										<span class="text-gray-400 text-xs">Verfügbar</span>
+									{/if}
 								</td>
 							</tr>
 						{/each}

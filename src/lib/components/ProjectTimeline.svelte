@@ -26,13 +26,11 @@
 	let editModal: HTMLDialogElement;
 	let editingStep = $state<ProjectStep | null>(null);
 
-	// Form Visibility States
+	// Form Visibility
 	let showUpdateForm = $state<Record<string, boolean>>({});
 	let showNotizForm = $state<Record<string, boolean>>({});
 	let showMaterialForm = $state<Record<string, boolean>>({});
 
-	// NEU: State für Material Bearbeitung (Welches Material wird gerade bearbeitet?)
-	// Speichert die linkId des Materials, das gerade editiert wird
 	let editingMaterialId = $state<string | null>(null);
 
 	function toggleStep(stepId: string) { if (expandedSteps.has(stepId)) expandedSteps.delete(stepId); else expandedSteps.add(stepId); }
@@ -48,7 +46,6 @@
 	function toggleNotizForm(id: string) { showNotizForm[id] = !showNotizForm[id]; }
 	function toggleMaterialForm(id: string) { showMaterialForm[id] = !showMaterialForm[id]; }
 
-	// NEU: Material Edit Toggle
 	function startEditMaterial(linkId: string) { editingMaterialId = linkId; }
 	function cancelEditMaterial() { editingMaterialId = null; }
 
@@ -105,8 +102,9 @@
 			{#each sortierteSchritte as schritt (schritt.id)}
 				{@const styles = getStatusStyles(schritt.status)}
 				{@const expanded = isExpanded(schritt.id)}
-
 				{@const availableMaterials = allMaterials.filter(m => !schritt.material.some(sm => sm.id === m.id))}
+
+				{@const isStepFinished = schritt.status === 'fertig'}
 
 				<div class="relative flex gap-4">
 					<div class="relative z-10 flex h-12 w-12 items-center justify-center rounded-full border-4 border-white text-xl text-white shadow-md {styles.dotColor}">{getStatusIcon(schritt.status)}</div>
@@ -129,12 +127,15 @@
 							<div class="border-t p-4 {styles.borderColor} bg-white/30">
 								{#if canManage}
 									<div class="flex justify-end gap-2 mb-4 border-b border-gray-200 pb-2">
-										<button onclick={() => toggleMaterialForm(schritt.id)} class="text-green-600 hover:bg-green-50 px-2 py-1 rounded text-xs flex gap-1">➕ Material</button>
+										{#if !isStepFinished}
+											<button onclick={() => toggleMaterialForm(schritt.id)} class="text-green-600 hover:bg-green-50 px-2 py-1 rounded text-xs flex gap-1">➕ Material</button>
+										{/if}
+
 										<button onclick={() => openEditModal(schritt)} class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs flex gap-1">✎ Bearbeiten</button>
 										<form action="?/deleteSchritt" method="POST" onsubmit={(e) => !confirm('Löschen?') && e.preventDefault()}><input type="hidden" name="schrittId" value={schritt.id} /><button class="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs">🗑 Löschen</button></form>
 									</div>
 
-									{#if showMaterialForm[schritt.id]}
+									{#if showMaterialForm[schritt.id] && !isStepFinished}
 										<div class="mb-4 bg-green-50 rounded p-4 border border-green-200" transition:slide>
 											<form action="?/addMaterialToStep" method="POST" use:enhance class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 												<input type="hidden" name="schrittId" value={schritt.id} />
@@ -146,9 +147,6 @@
 															<option value={m.id}>{m.name} (Bestand: {m.bestand} {m.einheit})</option>
 														{/each}
 													</select>
-													{#if availableMaterials.length === 0}
-														<p class="text-xs text-red-500 mt-1">Alle verfügbaren Materialien wurden bereits hinzugefügt.</p>
-													{/if}
 												</div>
 												<div><label class="text-xs">Menge</label><input type="number" step="0.01" name="menge" class="w-full text-sm rounded" required /></div>
 												<div class="sm:col-span-3 flex justify-end gap-2">
@@ -177,11 +175,11 @@
 												<div class="inline-flex items-center bg-white px-2 py-1 text-xs border rounded gap-2 shadow-sm">
 													<span class="font-medium text-gray-700">{mat.name}</span>
 
-													{#if editingMaterialId === mat.linkId}
+													{#if editingMaterialId === mat.linkId && !isStepFinished}
 														<form action="?/updateMaterialInStep" method="POST" use:enhance={() => {
                                                  return async ({ update }) => {
                                                      await update();
-                                                     cancelEditMaterial(); // Schließt Edit-Modus nach Erfolg
+                                                     cancelEditMaterial();
                                                  };
                                              }} class="flex items-center gap-1">
 															<input type="hidden" name="linkId" value={mat.linkId} />
@@ -201,16 +199,12 @@
 													{:else}
 														<span class="text-gray-500">({mat.menge} {mat.einheit})</span>
 
-														{#if canManage && mat.linkId}
+														{#if canManage && mat.linkId && !isStepFinished}
 															<div class="flex items-center gap-1 ml-1 pl-1 border-l border-gray-200">
-																<button onclick={() => startEditMaterial(mat.linkId!)} class="text-blue-400 hover:text-blue-600 p-0.5" title="Menge bearbeiten">
-																	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3"><path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" /><path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" /></svg>
-																</button>
+																<button onclick={() => startEditMaterial(mat.linkId!)} class="text-blue-400 hover:text-blue-600 p-0.5">✎</button>
 																<form action="?/removeMaterialFromStep" method="POST" use:enhance class="inline-flex">
 																	<input type="hidden" name="linkId" value={mat.linkId} />
-																	<button class="text-red-400 hover:text-red-600 p-0.5" title="Entfernen">
-																		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" /></svg>
-																	</button>
+																	<button class="text-red-400 hover:text-red-600 p-0.5">🗑</button>
 																</form>
 															</div>
 														{/if}
