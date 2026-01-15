@@ -98,7 +98,7 @@ export const actions: Actions = {
 	uploadBild: async ({ request, locals, params }) => {
 		// 1. Security Check: Nur Mitarbeiter dürfen hochladen!
 		if (!locals.user) {
-			return fail(403, { message: 'Nur Mitarbeiter dürfen Bilder hochladen.' });
+			return fail(403, { message: 'Bitte einloggen.' });
 		}
 
 		const data = await request.formData();
@@ -144,7 +144,10 @@ export const actions: Actions = {
 	deleteBild: async ({ request, locals }) => {
 		// 1. Security: Nur Mitarbeiter!
 		if (!locals.user) {
-			return fail(403, { message: 'Nur Mitarbeiter dürfen Bilder löschen.' });
+			return fail(403, { message: 'Nicht eingeloggt.' });
+		}
+		if (locals.user.role === 'HANDWERKER') {
+			return fail(403, { message: 'Nur Büro und Admins dürfen Bilder löschen.' });
 		}
 
 		const data = await request.formData();

@@ -6,12 +6,17 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  ADMIN
+  INNENDIENST
+  HANDWERKER
+}
 
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
   passwordHash String
-  role         String    @default("HANDWERKER")
+  role         Role    @default(HANDWERKER)
   sessions     Session[]
 }
 
