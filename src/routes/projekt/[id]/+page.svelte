@@ -25,7 +25,7 @@
 			data.project.schritte.map((schritt) => ({
 				id: schritt.id,
 				titel: schritt.titel,
-				beschreibung: schritt.beschreibung,
+				beschreibung: schritt.beschreibung ?? undefined,
 				startDatum: new Date(schritt.startDatum),
 				endDatum: new Date(schritt.endDatum),
 				status: schritt.status as 'offen' | 'in_arbeit' | 'fertig', // Type Cast für Enum Sicherheit
@@ -140,7 +140,7 @@
 		</div>
 
 		<div>
-			<ProjectTimeline {schritte} />
+			<ProjectTimeline {schritte} isStaff={data.isStaff} />
 		</div>
 	</main>
 
