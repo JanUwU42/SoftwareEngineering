@@ -16,7 +16,11 @@ model User {
   id           String    @id @default(uuid())
   email        String    @unique
   passwordHash String
-  role         Role    @default(HANDWERKER)
+  vorname      String
+  nachname     String
+  erstelltAm   DateTime  @default(now())
+  role         Role      @default(HANDWERKER)
+  projekte     Projekt[]
   sessions     Session[]
 }
 
@@ -44,6 +48,7 @@ model Projekt {
   kundenname          String
   projektbezeichnung  String
   projektbeschreibung String?  @db.Text
+  mitarbeiter         User[]
 
   geplanterStart      DateTime
   geplantesEnde       DateTime
