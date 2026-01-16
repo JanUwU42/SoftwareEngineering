@@ -1,5 +1,10 @@
 <script lang="ts">
-	import type { ProjectMetadata, ProjectStep, Material } from '$lib/types/project';
+	import type {
+		ProjectMetadata,
+		ProjectStep,
+		Material,
+		ProjectStepStatus
+	} from '$lib/types/project';
 	import ProjectMetadataCard from '$lib/components/ProjectMetadataCard.svelte';
 	import ProjectTimeline from '$lib/components/ProjectTimeline.svelte';
 	import { enhance } from '$app/forms';
@@ -17,12 +22,77 @@
 		nachricht: string;
 	}
 
+	interface ProjectData {
+		mitarbeiter: { id: string; vorname: string; nachname: string; role: string }[];
+		metadata: {
+			auftragsnummer: string;
+			kundenname: string;
+			projektadresse: {
+				strasse: string;
+				hausnummer: string;
+				plz: string;
+				ort: string;
+			};
+			projektbezeichnung: string;
+			projektbeschreibung?: string;
+			geplanterStart: string;
+			geplantesEnde: string;
+		};
+		schritte: {
+			id: string;
+			titel: string;
+			beschreibung?: string;
+			startDatum: string;
+			endDatum: string;
+			status: string;
+			fortschritt: number;
+			reihenfolge: number;
+			material: {
+				id: string;
+				linkId: string;
+				name: string;
+				menge: number;
+				einheit: string;
+				bemerkung?: string;
+			}[];
+			bilder: {
+				id: string;
+				url: string;
+				beschreibung?: string;
+				hochgeladenAm: string;
+				hochgeladenVon: string;
+				freigegeben: boolean;
+			}[];
+			notizen: {
+				id: string;
+				text: string;
+				erstelltAm: string;
+				autorName: string;
+				sichtbarFuerKunde: boolean;
+			}[];
+			pendingUpdates: {
+				id: string;
+				typ: string;
+				neuerStatus?: string;
+				neuerFortschritt?: number;
+				notizText?: string;
+				eingereichtAm: string;
+				bearbeiterName: string;
+				eingereichtVonId: string;
+				bild?: { id: string; url: string; beschreibung?: string };
+				menge?: number;
+				materialName?: string;
+				materialEinheit?: string;
+			}[];
+		}[];
+		materialListe: Material[];
+	}
+
 	interface Props {
 		data: {
-			project: any;
+			project: ProjectData;
 			isStaff: boolean;
 			userRole?: 'ADMIN' | 'INNENDIENST' | 'HANDWERKER';
-			userId?: string;
 			availableHandwerker: { id: string; vorname: string; nachname: string }[];
 			allMaterials: Material[];
 			pendingUpdatesCount: number;
@@ -94,17 +164,17 @@
 
 	// Mapping
 	const schritte: ProjectStep[] = $derived(
-		data.project.schritte.map((schritt: any) => ({
+		data.project.schritte.map((schritt) => ({
 			id: schritt.id,
 			titel: schritt.titel,
 			beschreibung: schritt.beschreibung ?? undefined,
 			startDatum: new Date(schritt.startDatum),
 			endDatum: new Date(schritt.endDatum),
-			status: schritt.status,
+			status: schritt.status as ProjectStepStatus,
 			fortschritt: schritt.fortschritt,
 			reihenfolge: schritt.reihenfolge,
 			material: schritt.material || [],
-			bilder: schritt.bilder.map((bild: any) => ({
+			bilder: schritt.bilder.map((bild) => ({
 				id: bild.id,
 				url: bild.url,
 				beschreibung: bild.beschreibung ?? undefined,
@@ -115,12 +185,20 @@
 			notizen: schritt.notizen ?? [],
 			// WICHTIG: Hier mappen wir die neuen Felder für Material-Anträge
 			pendingUpdates:
-				schritt.pendingUpdates?.map((u: any) => ({
-					...u,
+				schritt.pendingUpdates?.map((u) => ({
+					id: u.id,
+					typ: u.typ as 'STATUS_AENDERUNG' | 'FOTO_UPLOAD' | 'NOTIZ' | 'MATERIAL_ANFORDERUNG',
+					neuerStatus: (u.neuerStatus ?? null) as 'offen' | 'in_arbeit' | 'fertig' | null,
+					neuerFortschritt: u.neuerFortschritt ?? null,
+					notizText: u.notizText ?? null,
+					eingereichtAm: u.eingereichtAm,
+					bearbeiterName: u.bearbeiterName,
+					eingereichtVonId: u.eingereichtVonId,
+					bild: u.bild ?? null,
 					// Sicherstellen, dass diese Felder existieren (kommen vom Server Load)
-					materialName: u.materialName,
-					materialEinheit: u.materialEinheit,
-					menge: u.menge
+					materialName: u.materialName ?? null,
+					materialEinheit: u.materialEinheit ?? null,
+					menge: u.menge ?? null
 				})) ?? []
 		}))
 	);
@@ -283,7 +361,7 @@
 						required
 					>
 						<option value="" disabled selected>Handwerker auswählen...</option>
-						{#each data.availableHandwerker as h}{#if !data.project.mitarbeiter?.some((m: any) => m.id === h.id)}<option
+						{#each data.availableHandwerker as h (h.id)}{#if !data.project.mitarbeiter?.some((m) => m.id === h.id)}<option
 									value={h.id}>{h.vorname} {h.nachname}</option
 								>{/if}{/each}
 					</select>
@@ -312,7 +390,6 @@
 				{schritte}
 				isStaff={data.isStaff}
 				userRole={data.userRole}
-				userId={data.userId}
 				allMaterials={data.allMaterials}
 			/>
 		</div>
@@ -405,7 +482,10 @@
 				</div>
 			</div>
 			<div class="mt-2 border-t pt-4">
-				<label class="block text-sm font-medium text-gray-700">Beschreibung</label><textarea
+				<label for="projektbeschreibung" class="block text-sm font-medium text-gray-700"
+					>Beschreibung</label
+				><textarea
+					id="projektbeschreibung"
 					name="projektbeschreibung"
 					rows="3"
 					class="w-full rounded-md border-gray-300">{metadata.projektbeschreibung || ''}</textarea
@@ -432,7 +512,9 @@
 		<h3 class="mb-4 text-lg font-bold">Neuen Schritt anlegen</h3>
 		<form action="?/createSchritt" method="POST" use:enhance class="space-y-4">
 			<div>
-				<label class="block text-sm font-medium text-gray-700">Titel</label><input
+				<label for="schritt-titel" class="block text-sm font-medium text-gray-700">Titel</label
+				><input
+					id="schritt-titel"
 					type="text"
 					name="titel"
 					class="w-full rounded-md border-gray-300"
@@ -441,7 +523,9 @@
 			</div>
 			<div class="grid grid-cols-2 gap-4">
 				<div>
-					<label class="block text-sm font-medium text-gray-700">Start</label><input
+					<label for="schritt-start" class="block text-sm font-medium text-gray-700">Start</label
+					><input
+						id="schritt-start"
 						type="date"
 						name="startDatum"
 						class="w-full rounded-md border-gray-300"
@@ -449,7 +533,9 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700">Ende</label><input
+					<label for="schritt-ende" class="block text-sm font-medium text-gray-700">Ende</label
+					><input
+						id="schritt-ende"
 						type="date"
 						name="endDatum"
 						class="w-full rounded-md border-gray-300"
@@ -458,7 +544,10 @@
 				</div>
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700">Beschreibung</label><textarea
+				<label for="schritt-beschreibung" class="block text-sm font-medium text-gray-700"
+					>Beschreibung</label
+				><textarea
+					id="schritt-beschreibung"
 					name="beschreibung"
 					rows="2"
 					class="w-full rounded-md border-gray-300"

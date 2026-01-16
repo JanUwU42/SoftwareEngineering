@@ -1,7 +1,7 @@
 import { error, redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/server/prisma';
-import { Role, SchrittStatus } from '@prisma/client';
+import { Role, SchrittStatus, type Prisma } from '@prisma/client';
 import { notifyCustomerAboutStepUpdate } from '$lib/server/email';
 
 // Helper: Audit Log erstellen
@@ -96,7 +96,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	// 3. GLOBALE RESERVIERUNGEN BERECHNEN
 	const activeMaterialsInProject = Array.from(
-		new Set(p.schritte.flatMap((s) => s.materialien.map((m) => m.materialId)))
+		new Set(
+			p.schritte.flatMap((s: { materialien: { materialId: string }[] }) =>
+				s.materialien.map((m: { materialId: string }) => m.materialId)
+			)
+		)
 	);
 
 	const reservations = await prisma.materialBedarf.groupBy({
@@ -109,7 +113,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	});
 
 	const reservationMap = new Map<string, number>();
-	reservations.forEach((r) => reservationMap.set(r.materialId, r._sum.menge ?? 0));
+	reservations.forEach((r: { materialId: string; _sum: { menge: number | null } }) =>
+		reservationMap.set(r.materialId, r._sum.menge ?? 0)
+	);
 
 	// 4. MATERIAL AGGREGATION
 	const materialMap = new Map<
@@ -162,7 +168,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	const allMaterials = await prisma.material.findMany({ orderBy: { name: 'asc' } });
 
-	let availableHandwerker: any[] = [];
+	let availableHandwerker: { id: string; vorname: string; nachname: string }[] = [];
 	let pendingUpdatesCount = 0;
 	if (locals.user && (locals.user.role === Role.ADMIN || locals.user.role === Role.INNENDIENST)) {
 		availableHandwerker = await prisma.user.findMany({
@@ -181,7 +187,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		userId: locals.user?.id,
 		availableHandwerker,
 		pendingUpdatesCount,
-		allMaterials: allMaterials.map((m) => ({ ...m, bestand: Number(m.bestand) })),
+		allMaterials: allMaterials.map(
+			(m: { id: string; name: string; einheit: string; bestand: Prisma.Decimal | number }) => ({
+				...m,
+				bestand: Number(m.bestand)
+			})
+		),
 
 		project: {
 			id: p.id,
@@ -200,7 +211,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				geplanterStart: p.geplanterStart.toISOString(),
 				geplantesEnde: p.geplantesEnde.toISOString()
 			},
-			schritte: p.schritte.map((schritt) => ({
+			schritte: p.schritte.map((schritt: (typeof p.schritte)[number]) => ({
 				id: schritt.id,
 				titel: schritt.titel,
 				beschreibung: schritt.beschreibung,
@@ -209,7 +220,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				status: schritt.status,
 				fortschritt: schritt.fortschritt,
 				reihenfolge: schritt.reihenfolge,
-				material: schritt.materialien.map((m) => ({
+				material: schritt.materialien.map((m: (typeof schritt.materialien)[number]) => ({
 					id: m.material.id,
 					linkId: m.id,
 					name: m.material.name,
@@ -217,7 +228,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					einheit: m.material.einheit,
 					bemerkung: m.bemerkung ?? undefined
 				})),
-				bilder: schritt.bilder.map((bild) => ({
+				bilder: schritt.bilder.map((bild: (typeof schritt.bilder)[number]) => ({
 					id: bild.id,
 					url: `data:${bild.mimeType};base64,${Buffer.from(bild.daten).toString('base64')}`,
 					beschreibung: bild.beschreibung ?? undefined,
@@ -226,7 +237,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					freigegeben: bild.freigegeben
 				})),
 				notizen:
-					schritt.notizen?.map((notiz) => ({
+					schritt.notizen?.map((notiz: NonNullable<typeof schritt.notizen>[number]) => ({
 						id: notiz.id,
 						text: notiz.text,
 						erstelltAm: notiz.erstelltAm.toISOString(),
@@ -236,14 +247,35 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 				// PENDING UPDATES MAPPING
 				pendingUpdates:
-					(schritt.pendingUpdates as any)?.map((update: any) => ({
+					(
+						schritt.pendingUpdates as unknown as {
+							id: string;
+							typ: string;
+							neuerStatus: string | null;
+							neuerFortschritt: number | null;
+							notizText: string | null;
+							eingereichtAm: Date;
+							eingereichtVon: string;
+							bearbeiter: { vorname: string; nachname: string } | null;
+							bild: {
+								id: string;
+								daten: Buffer;
+								mimeType: string;
+								beschreibung: string | null;
+							} | null;
+							material: { id: string; name: string; einheit: string } | null;
+							menge: number | null;
+						}[]
+					)?.map((update) => ({
 						id: update.id,
 						typ: update.typ,
 						neuerStatus: update.neuerStatus,
 						neuerFortschritt: update.neuerFortschritt,
 						notizText: update.notizText,
 						eingereichtAm: update.eingereichtAm.toISOString(),
-						bearbeiterName: `${update.bearbeiter.vorname} ${update.bearbeiter.nachname}`,
+						bearbeiterName: update.bearbeiter
+							? `${update.bearbeiter.vorname} ${update.bearbeiter.nachname}`
+							: 'Unbekannt',
 						eingereichtVonId: update.eingereichtVon,
 						bild: update.bild
 							? {
@@ -387,7 +419,7 @@ export const actions: Actions = {
 			}
 		}
 
-		await prisma.$transaction(async (tx) => {
+		await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
 			await tx.schritt.update({
 				where: { id: schrittId },
 				data: { titel, status: neuerStatus, fortschritt, startDatum: start, endDatum: ende }
@@ -421,7 +453,7 @@ export const actions: Actions = {
 	},
 
 	// 5. APPROVE UPDATE (Innendienst)
-	approveUpdate: async ({ request, locals, params, url }) => {
+	approveUpdate: async ({ request, locals, url }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
 		const updateId = data.get('updateId') as string;
@@ -477,7 +509,7 @@ export const actions: Actions = {
 				});
 		}
 
-		await prisma.$transaction(async (tx) => {
+		await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
 			if (update.typ === 'STATUS_AENDERUNG') {
 				await tx.schritt.update({
 					where: { id: update.schrittId },
@@ -559,7 +591,7 @@ export const actions: Actions = {
 	},
 
 	// 6. SUBMIT UPDATE (HANDWERKER)
-	submitUpdate: async ({ request, locals, params }) => {
+	submitUpdate: async ({ request, locals }) => {
 		if (!locals.user) return fail(403);
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
@@ -705,7 +737,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	addNotiz: async ({ request, locals, params }) => {
+	addNotiz: async ({ request, locals }) => {
 		if (!locals.user) return fail(403);
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
@@ -723,7 +755,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	toggleNotizSichtbarkeit: async ({ request, locals, params }) => {
+	toggleNotizSichtbarkeit: async ({ request, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
 		const notizId = data.get('notizId') as string;
@@ -736,7 +768,7 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	rejectUpdate: async ({ request, locals, params }) => {
+	rejectUpdate: async ({ request, locals }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
 		const data = await request.formData();
 		const updateId = data.get('updateId') as string;

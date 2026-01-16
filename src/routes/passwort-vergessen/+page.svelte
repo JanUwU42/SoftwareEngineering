@@ -44,7 +44,7 @@
 		{#if form?.success}
 			<div transition:slide class="rounded-md border-l-4 border-green-500 bg-green-50 p-4">
 				<div class="flex">
-					<div class="flex-shrink-0">
+					<div class="shrink-0">
 						<svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
 							<path
 								fill-rule="evenodd"

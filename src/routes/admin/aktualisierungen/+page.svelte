@@ -153,7 +153,7 @@
 		>
 			{#if messageType === 'success'}
 				<svg
-					class="h-6 w-6 flex-shrink-0 text-green-500"
+					class="h-6 w-6 shrink-0 text-green-500"
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
@@ -167,7 +167,7 @@
 				</svg>
 			{:else}
 				<svg
-					class="h-6 w-6 flex-shrink-0 text-red-500"
+					class="h-6 w-6 shrink-0 text-red-500"
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
@@ -193,6 +193,7 @@
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
 		onclick={closeLightbox}
+		onkeydown={(e) => e.key === 'Escape' && closeLightbox()}
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
@@ -202,7 +203,12 @@
 			class="absolute top-4 right-4 text-3xl text-white hover:text-gray-300"
 			onclick={closeLightbox}>✕</button
 		>
-		<div class="max-h-[90vh] max-w-[90vw]" onclick={(e) => e.stopPropagation()}>
+		<div
+			class="max-h-[90vh] max-w-[90vw]"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			role="presentation"
+		>
 			<img
 				src={lightboxImage.url}
 				alt={lightboxImage.beschreibung || 'Bild'}
@@ -220,6 +226,8 @@
 		<div
 			class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl"
 			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+			role="presentation"
 		>
 			<h3 class="mb-4 text-lg font-bold">Aktualisierung ablehnen</h3>
 			<form action="?/reject" method="POST" use:enhance onsubmit={() => closeRejectModal()}>
