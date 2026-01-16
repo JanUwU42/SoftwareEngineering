@@ -4,7 +4,6 @@ import { prisma } from '$lib/server/prisma';
 import { Role } from '@prisma/client';
 import { notifyCustomerAboutStepUpdate } from '$lib/server/email';
 
-// Helper function to create audit log entries
 async function createAuditLog(
 	userId: string,
 	aktion: string,
@@ -13,48 +12,32 @@ async function createAuditLog(
 	schrittId?: string
 ) {
 	await prisma.auditLog.create({
-		data: {
-			userId,
-			aktion,
-			details: JSON.stringify(details),
-			projektId,
-			schrittId
-		}
+		data: { userId, aktion, details: JSON.stringify(details), projektId, schrittId }
 	});
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
-	// Only Innendienst and Admin can access this page
 	if (!locals.user) throw redirect(303, '/');
 	if (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST) {
 		throw error(403, 'Zugriff verweigert.');
 	}
 
-	// Load all pending updates with their related data
 	const pendingUpdates = await prisma.handwerkerUpdate.findMany({
 		where: { status: 'ausstehend' },
 		include: {
 			schritt: {
 				include: {
 					projekt: {
-						select: {
-							id: true,
-							projektbezeichnung: true,
-							kundenname: true,
-							auftragsnummer: true
-						}
+						select: { id: true, projektbezeichnung: true, kundenname: true, auftragsnummer: true }
 					}
 				}
 			},
-			bearbeiter: {
-				select: { id: true, vorname: true, nachname: true }
-			},
+			bearbeiter: { select: { id: true, vorname: true, nachname: true } },
 			bild: true
 		},
 		orderBy: { eingereichtAm: 'desc' }
 	});
 
-	// Transform data for the frontend
 	const updates = pendingUpdates.map((update) => ({
 		id: update.id,
 		typ: update.typ,
@@ -87,10 +70,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			: null
 	}));
 
-	return {
-		updates,
-		userRole: locals.user.role
-	};
+	return { updates, userRole: locals.user.role };
 };
 
 export const actions: Actions = {
@@ -110,13 +90,7 @@ export const actions: Actions = {
 			include: {
 				schritt: {
 					include: {
-						projekt: {
-							select: {
-								id: true,
-								auftragsnummer: true,
-								kundenname: true
-							}
-						}
+						projekt: { select: { id: true, auftragsnummer: true, kundenname: true } }
 					}
 				},
 				bild: true
@@ -126,7 +100,6 @@ export const actions: Actions = {
 		if (!update) return fail(404, { message: 'Update nicht gefunden.' });
 		if (update.status !== 'ausstehend') return fail(400, { message: 'Update bereits bearbeitet.' });
 
-		// Apply the update based on type
 		if (update.typ === 'STATUS_AENDERUNG') {
 			await prisma.schritt.update({
 				where: { id: update.schrittId },
@@ -153,11 +126,7 @@ export const actions: Actions = {
 
 		await prisma.handwerkerUpdate.update({
 			where: { id: updateId },
-			data: {
-				status: 'genehmigt',
-				bearbeitetVon: locals.user.id,
-				bearbeitetAm: new Date()
-			}
+			data: { status: 'genehmigt', bearbeitetVon: locals.user.id, bearbeitetAm: new Date() }
 		});
 
 		await createAuditLog(
@@ -173,17 +142,15 @@ export const actions: Actions = {
 			update.schrittId
 		);
 
-		// Send notification to customer about the approved update
 		const baseUrl = `${url.protocol}//${url.host}`;
 		const neuerStatus = update.neuerStatus || update.schritt.status;
-
 		const fortschritt = update.neuerFortschritt ?? update.schritt.fortschritt;
 
 		const notification = notifyCustomerAboutStepUpdate({
 			auftragsnummer: update.schritt.projekt.auftragsnummer,
 			schrittTitel: update.schritt.titel,
-			neuerStatus: neuerStatus,
-			fortschritt: fortschritt,
+			neuerStatus,
+			fortschritt,
 			projektId: update.schritt.projekt.id,
 			kundenname: update.schritt.projekt.kundenname,
 			baseUrl

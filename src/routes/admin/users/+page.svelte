@@ -9,11 +9,9 @@
 
 	type User = PageData['users'][number];
 
-	// State für Modals
 	let createModal: HTMLDialogElement;
 	let editModal: HTMLDialogElement;
 
-	// Welcher User wird gerade bearbeitet?
 	let editingUser = $state<User | null>(null);
 
 	function openEdit(user: User) {
@@ -21,7 +19,6 @@
 		editModal.showModal();
 	}
 
-	// Helper: Prüft für die Checkboxen, ob der User das Projekt schon hat
 	function hasProject(user: User | null, projectId: string) {
 		return user?.projekte?.some((p: { id: string }) => p.id === projectId) ?? false;
 	}
@@ -34,7 +31,6 @@
 		});
 	}
 
-	// Farben für die Rollen Badges
 	function getRoleBadge(role: string) {
 		switch (role) {
 			case 'ADMIN':

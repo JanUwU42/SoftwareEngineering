@@ -4,36 +4,27 @@ import { prisma } from '$lib/server/prisma';
 import { Role, type Material } from '@prisma/client';
 
 export const load: PageServerLoad = async ({ locals }) => {
-	// 1. Zugriffsschutz
 	if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST)) {
 		throw redirect(303, '/');
 	}
 
-	// 2. Materialien laden
-	const materialsRaw = await prisma.material.findMany({
-		orderBy: { name: 'asc' }
-	});
+	const materialsRaw = await prisma.material.findMany({ orderBy: { name: 'asc' } });
 
-	// 3. Globale Reservierungen laden (Alles in nicht-fertigen Schritten)
 	const reservations = await prisma.materialBedarf.groupBy({
 		by: ['materialId'],
-		where: {
-			schritt: { status: { not: 'fertig' } } // Nur laufende Projekte reservieren
-		},
+		where: { schritt: { status: { not: 'fertig' } } },
 		_sum: { menge: true }
 	});
 
-	// Map für schnellen Zugriff: ID -> Menge
 	const reservationMap = new Map<string, number>();
 	reservations.forEach((r: { materialId: string; _sum: { menge: number | null } }) =>
 		reservationMap.set(r.materialId, r._sum.menge ?? 0)
 	);
 
-	// 4. Daten zusammenfügen
 	const materials = materialsRaw.map((m: Material) => {
-		const physisch = Number(m.bestand); // Was liegt im Regal (DB)
-		const reserviert = reservationMap.get(m.id) ?? 0; // Was ist verplant
-		const verfuegbar = physisch - reserviert; // Was ist "frei"
+		const physisch = Number(m.bestand);
+		const reserviert = reservationMap.get(m.id) ?? 0;
+		const verfuegbar = physisch - reserviert;
 
 		return {
 			...m,
@@ -49,7 +40,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	// --- ERSTELLEN ---
 	createMaterial: async ({ request, locals }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
@@ -58,7 +48,7 @@ export const actions: Actions = {
 		const name = data.get('name') as string;
 		const einheit = data.get('einheit') as string;
 		const rawBestand = (data.get('bestand') as string)?.replace(',', '.') || '0';
-		const bestand = Math.max(0, parseFloat(rawBestand)); // Bestand darf nicht < 0 sein beim Anlegen
+		const bestand = Math.max(0, parseFloat(rawBestand));
 
 		if (!name || !einheit) return fail(400, { message: 'Pflichtfelder fehlen.' });
 
@@ -69,7 +59,6 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	// --- BEARBEITEN (Lagerbestand Korrektur) ---
 	updateMaterial: async ({ request, locals }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
@@ -79,7 +68,7 @@ export const actions: Actions = {
 		const name = data.get('name') as string;
 		const einheit = data.get('einheit') as string;
 		const rawBestand = (data.get('bestand') as string)?.replace(',', '.') || '0';
-		const bestand = Math.max(0, parseFloat(rawBestand)); // Bestand nicht < 0
+		const bestand = Math.max(0, parseFloat(rawBestand));
 
 		if (!id || !name) return fail(400);
 
@@ -91,10 +80,10 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	// --- LÖSCHEN ---
 	deleteMaterial: async ({ request, locals }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
+
 		const data = await request.formData();
 		const id = data.get('id') as string;
 
@@ -106,6 +95,7 @@ export const actions: Actions = {
 		} catch {
 			return fail(500, { message: 'Fehler beim Löschen.' });
 		}
+
 		return { success: true };
 	}
 };

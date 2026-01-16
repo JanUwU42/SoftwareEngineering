@@ -13,50 +13,31 @@ export const actions: Actions = {
 			return fail(400, { email, error: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.' });
 		}
 
-		// Find the user by email
 		const user = await prisma.user.findUnique({
 			where: { email: email.toLowerCase().trim() }
 		});
 
-		// Always show success message to prevent email enumeration attacks
 		if (!user) {
-			// Wait a bit to simulate processing time (prevent timing attacks)
 			await new Promise((resolve) => setTimeout(resolve, 500));
 			return { success: true, email };
 		}
 
-		// Invalidate any existing reset tokens for this user
 		await prisma.passwordResetToken.updateMany({
-			where: {
-				userId: user.id,
-				used: false
-			},
-			data: {
-				used: true
-			}
+			where: { userId: user.id, used: false },
+			data: { used: true }
 		});
 
-		// Create a new reset token
 		const token = crypto.randomBytes(32).toString('hex');
-		const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+		const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
 		await prisma.passwordResetToken.create({
-			data: {
-				token,
-				email: user.email,
-				userId: user.id,
-				expiresAt
-			}
+			data: { token, email: user.email, userId: user.id, expiresAt }
 		});
 
-		// Get the base URL for the reset link
-		const baseUrl = url.origin;
-
-		// Send the password reset email
 		const { success: emailSent, notification } = await sendPasswordResetEmail(
 			user.email,
 			token,
-			baseUrl
+			url.origin
 		);
 
 		if (!emailSent) {
