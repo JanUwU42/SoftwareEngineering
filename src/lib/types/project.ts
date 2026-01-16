@@ -29,8 +29,8 @@ export interface Material {
 	menge: number;
 	einheit: string;
 	bemerkung?: string;
-	bestand?: number;        // Aktueller Gesamtbestand im Lager (DB Wert)
-	linkId?: string;         // ID der Verknüpfung (zum Löschen)
+	bestand?: number; // Aktueller Gesamtbestand im Lager (DB Wert)
+	linkId?: string; // ID der Verknüpfung (zum Löschen)
 
 	// Berechnete Werte für die Anzeige
 	mengeBestellen?: number;
@@ -53,7 +53,7 @@ export interface ProjectNote {
  */
 export interface PendingUpdate {
 	id: string;
-	typ: 'STATUS_AENDERUNG' | 'FOTO_UPLOAD' | 'NOTIZ';
+	typ: 'STATUS_AENDERUNG' | 'FOTO_UPLOAD' | 'NOTIZ' | 'MATERIAL_ANFORDERUNG';
 	neuerStatus: ProjectStepStatus | null;
 	neuerFortschritt: number | null;
 	notizText: string | null;
@@ -66,6 +66,10 @@ export interface PendingUpdate {
 		url: string;
 		beschreibung?: string;
 	} | null;
+	/** Material request fields */
+	menge?: number | null;
+	materialName?: string | null;
+	materialEinheit?: string | null;
 }
 
 /**

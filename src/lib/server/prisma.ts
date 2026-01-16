@@ -9,15 +9,36 @@ declare global {
 }
 
 function createPrismaClient(): PrismaClient {
-	const connectionString = env.DATABASE_URL;
+	// Try multiple environment variable names
+	const connectionString =
+		env.POSTGRES_URL_NON_POOLING || env.POSTGRES_URL || env.DATABASE_URL || env.PRISMA_DATABASE_URL;
 
 	if (!connectionString) {
-		throw new Error('DATABASE_URL environment variable is not set');
+		throw new Error(
+			'Database connection string not found. Please set POSTGRES_URL, DATABASE_URL, or PRISMA_DATABASE_URL environment variable.'
+		);
+	}
+
+	// Check if this is a Prisma Accelerate URL (starts with prisma+postgres://)
+	// Prisma Accelerate requires a different setup - for now we'll extract the underlying connection
+	// or throw an error with helpful guidance
+	if (
+		connectionString.startsWith('prisma+postgres://') ||
+		connectionString.startsWith('prisma://')
+	) {
+		throw new Error(
+			'Prisma Accelerate URL detected. This application uses direct PostgreSQL connections via pg adapter. ' +
+				'Please use a direct PostgreSQL connection string (POSTGRES_URL or POSTGRES_URL_NON_POOLING) from your Vercel Postgres settings, ' +
+				'or set DATABASE_URL to a direct postgres:// connection string.'
+		);
 	}
 
 	const pool = new pg.Pool({
 		connectionString,
-		ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+		ssl:
+			connectionString.includes('sslmode=require') || process.env.NODE_ENV === 'production'
+				? { rejectUnauthorized: false }
+				: undefined,
 		max: 5,
 		idleTimeoutMillis: 30000,
 		connectionTimeoutMillis: 10000
