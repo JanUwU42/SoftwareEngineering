@@ -2,6 +2,7 @@ import { error, redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { prisma } from '$lib/server/prisma';
 import { Role } from '@prisma/client';
+import { notifyCustomerAboutStepUpdate } from '$lib/server/email';
 
 // Helper function to create audit log entries
 async function createAuditLog(
@@ -93,7 +94,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
-	approve: async ({ request, locals }) => {
+	approve: async ({ request, locals, url }) => {
 		if (!locals.user) return fail(403, { message: 'Nicht angemeldet.' });
 		if (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST) {
 			return fail(403, { message: 'Keine Berechtigung.' });
@@ -106,7 +107,20 @@ export const actions: Actions = {
 
 		const update = await prisma.handwerkerUpdate.findUnique({
 			where: { id: updateId },
-			include: { schritt: true, bild: true }
+			include: {
+				schritt: {
+					include: {
+						projekt: {
+							select: {
+								id: true,
+								auftragsnummer: true,
+								kundenname: true
+							}
+						}
+					}
+				},
+				bild: true
+			}
 		});
 
 		if (!update) return fail(404, { message: 'Update nicht gefunden.' });
@@ -159,7 +173,23 @@ export const actions: Actions = {
 			update.schrittId
 		);
 
-		return { success: true, message: 'Aktualisierung genehmigt.' };
+		// Send notification to customer about the approved update
+		const baseUrl = `${url.protocol}//${url.host}`;
+		const neuerStatus = update.neuerStatus || update.schritt.status;
+
+		const fortschritt = update.neuerFortschritt ?? update.schritt.fortschritt;
+
+		const notification = notifyCustomerAboutStepUpdate({
+			auftragsnummer: update.schritt.projekt.auftragsnummer,
+			schrittTitel: update.schritt.titel,
+			neuerStatus: neuerStatus,
+			fortschritt: fortschritt,
+			projektId: update.schritt.projekt.id,
+			kundenname: update.schritt.projekt.kundenname,
+			baseUrl
+		});
+
+		return { success: true, message: 'Aktualisierung genehmigt.', notification };
 	},
 
 	reject: async ({ request, locals }) => {

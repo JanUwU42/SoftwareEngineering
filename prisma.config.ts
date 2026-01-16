@@ -4,17 +4,22 @@ import 'dotenv/config';
 // For prisma generate, we don't need a real DATABASE_URL
 // Only migrations and runtime need the actual connection string
 // Using process.env with fallback to avoid build errors on Vercel
-const databaseUrl = process.env.DATABASE_URL || 'postgresql://dummy:dummy@localhost:5432/dummy';
+// Check multiple possible env var names for database connection
+const databaseUrl =
+	process.env.POSTGRES_URL_NON_POOLING ||
+	process.env.POSTGRES_URL ||
+	process.env.DATABASE_URL ||
+	'postgresql://dummy:dummy@localhost:5432/dummy';
 
 export default defineConfig({
-  schema: 'prisma/schema.prisma',
+	schema: 'prisma/schema.prisma',
 
-  datasource: {
-    url: databaseUrl,
-  },
+	datasource: {
+		url: databaseUrl
+	},
 
-  migrations: {
-    path: 'prisma/migrations',
-    seed: 'tsx prisma/seed.ts'
-  }
+	migrations: {
+		path: 'prisma/migrations',
+		seed: 'tsx prisma/seed.ts'
+	}
 });

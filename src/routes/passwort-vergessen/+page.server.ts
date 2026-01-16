@@ -53,7 +53,11 @@ export const actions: Actions = {
 		const baseUrl = url.origin;
 
 		// Send the password reset email
-		const emailSent = await sendPasswordResetEmail(user.email, token, baseUrl);
+		const { success: emailSent, notification } = await sendPasswordResetEmail(
+			user.email,
+			token,
+			baseUrl
+		);
 
 		if (!emailSent) {
 			return fail(500, {
@@ -62,6 +66,6 @@ export const actions: Actions = {
 			});
 		}
 
-		return { success: true, email };
+		return { success: true, email, notification };
 	}
 };
