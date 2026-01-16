@@ -4,7 +4,6 @@ import { prisma } from '$lib/server/prisma';
 import { Role, SchrittStatus, type Prisma } from '@prisma/client';
 import { notifyCustomerAboutStepUpdate } from '$lib/server/email';
 
-// Helper: Audit Log erstellen
 async function createAuditLog(
 	userId: string,
 	aktion: string,
@@ -19,33 +18,25 @@ async function createAuditLog(
 
 async function getOrCreateMaterialId(formData: FormData): Promise<string | null> {
 	const isNew = formData.get('isNew') === 'true';
-
 	if (isNew) {
 		const name = formData.get('newMaterialName') as string;
 		const einheit = formData.get('newMaterialUnit') as string;
-
 		if (!name || !einheit) return null;
 
-		// Check ob es das schon gibt (Case insensitive wäre besser, aber hier simple)
 		const existing = await prisma.material.findFirst({
 			where: { name: { equals: name, mode: 'insensitive' } }
 		});
 		if (existing) return existing.id;
 
-		// Neu anlegen mit Bestand 0
-		const newMat = await prisma.material.create({
-			data: { name, einheit, bestand: 0 }
-		});
+		const newMat = await prisma.material.create({ data: { name, einheit, bestand: 0 } });
 		return newMat.id;
-	} else {
-		return formData.get('materialId') as string;
 	}
+	return formData.get('materialId') as string;
 }
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const { id } = params;
 
-	// 1. AUTH CHECK
 	if (!locals.user && !locals.projekt) throw redirect(303, '/');
 	if (locals.projekt && locals.projekt.id !== id) throw error(403, 'Zugriff verweigert.');
 
@@ -56,7 +47,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		if (!project) throw error(403, 'Sie sind diesem Projekt nicht zugeordnet.');
 	}
 
-	// 2. DB ABFRAGE
 	const p = await prisma.projekt.findUnique({
 		where: { id },
 		include: {
@@ -78,7 +68,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					pendingUpdates: locals.user
 						? {
 								where: { status: 'ausstehend' },
-								// Hier laden wir auch das Material für Material-Anträge
 								include: {
 									bearbeiter: { select: { vorname: true, nachname: true } },
 									bild: true,
@@ -94,7 +83,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	if (!p) throw error(404, 'Projekt nicht gefunden');
 
-	// 3. GLOBALE RESERVIERUNGEN BERECHNEN
 	const activeMaterialsInProject = Array.from(
 		new Set(
 			p.schritte.flatMap((s: { materialien: { materialId: string }[] }) =>
@@ -117,7 +105,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		reservationMap.set(r.materialId, r._sum.menge ?? 0)
 	);
 
-	// 4. MATERIAL AGGREGATION
 	const materialMap = new Map<
 		string,
 		{
@@ -133,7 +120,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	for (const s of p.schritte) {
 		for (const m of s.materialien) {
 			if (!m.material) continue;
-
 			const menge = Number(m.menge);
 			const physischerBestand = Number(m.material.bestand);
 			const globalReserviert = reservationMap.get(m.material.id) ?? 0;
@@ -145,24 +131,19 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				materialMap.set(m.material.id, {
 					id: m.material.id,
 					name: m.material.name,
-					menge: menge,
+					menge,
 					einheit: m.material.einheit,
 					bestand: physischerBestand,
-					globalReserviert: globalReserviert
+					globalReserviert
 				});
 			}
 		}
 	}
 
-	// 5. BERECHNUNG
 	const materialListe = Array.from(materialMap.values()).map((mat) => {
 		const verfuegbarNachReservierung = mat.bestand - mat.globalReserviert;
-		let mengeBestellen = 0;
-
-		if (verfuegbarNachReservierung < 0) {
-			mengeBestellen = Math.abs(verfuegbarNachReservierung);
-		}
-
+		const mengeBestellen =
+			verfuegbarNachReservierung < 0 ? Math.abs(verfuegbarNachReservierung) : 0;
 		return { ...mat, mengeBestellen };
 	});
 
@@ -170,6 +151,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	let availableHandwerker: { id: string; vorname: string; nachname: string }[] = [];
 	let pendingUpdatesCount = 0;
+
 	if (locals.user && (locals.user.role === Role.ADMIN || locals.user.role === Role.INNENDIENST)) {
 		availableHandwerker = await prisma.user.findMany({
 			where: { role: Role.HANDWERKER },
@@ -180,7 +162,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		});
 	}
 
-	// Mapping für Frontend
 	return {
 		isStaff: !!locals.user,
 		userRole: locals.user?.role,
@@ -193,7 +174,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				bestand: Number(m.bestand)
 			})
 		),
-
 		project: {
 			id: p.id,
 			mitarbeiter: p.mitarbeiter,
@@ -244,8 +224,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 						autorName: `${notiz.autor.vorname} ${notiz.autor.nachname}`,
 						sichtbarFuerKunde: notiz.sichtbarFuerKunde
 					})) ?? [],
-
-				// PENDING UPDATES MAPPING
 				pendingUpdates:
 					(
 						schritt.pendingUpdates as unknown as {
@@ -284,13 +262,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 									beschreibung: update.bild.beschreibung
 								}
 							: null,
-						// Material Infos
 						menge: update.menge,
 						materialName: update.material?.name,
 						materialEinheit: update.material?.einheit
 					})) ?? []
 			})),
-			materialListe: materialListe,
+			materialListe,
 			erstelltAm: p.erstelltAm.toISOString(),
 			aktualisiertAm: p.aktualisiertAm.toISOString()
 		}
@@ -298,7 +275,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 };
 
 export const actions: Actions = {
-	// 1. MATERIAL HINZUFÜGEN (Admin Direkt)
 	addMaterialToStep: async ({ request, locals, params }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
@@ -307,8 +283,6 @@ export const actions: Actions = {
 		const schrittId = data.get('schrittId') as string;
 		const rawMenge = (data.get('menge') as string).replace(',', '.');
 		const menge = parseFloat(rawMenge);
-
-		// NEU: Helper nutzen um Material ID zu bekommen (Entweder aus Dropdown oder neu erstellt)
 		const materialId = await getOrCreateMaterialId(data);
 
 		if (!schrittId || !materialId || isNaN(menge))
@@ -323,9 +297,8 @@ export const actions: Actions = {
 		if (existing) return fail(400, { message: 'Material existiert bereits in diesem Schritt.' });
 
 		await prisma.materialBedarf.create({ data: { schrittId, materialId, menge } });
-
 		await createAuditLog(
-			locals.user!.id,
+			locals.user.id,
 			'MATERIAL_HINZUGEFUEGT',
 			{ schrittId, materialId, menge },
 			params.id,
@@ -334,10 +307,10 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	// 2. MATERIAL EDITIEREN
 	updateMaterialInStep: async ({ request, locals, params }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
+
 		const data = await request.formData();
 		const linkId = data.get('linkId') as string;
 		const neueMenge = parseFloat((data.get('menge') as string).replace(',', '.'));
@@ -349,14 +322,12 @@ export const actions: Actions = {
 			include: { schritt: true }
 		});
 		if (!alterBedarf) return fail(404);
-
 		if (alterBedarf.schritt.status === 'fertig')
 			return fail(400, { message: 'Schritt ist bereits fertig.' });
 
 		await prisma.materialBedarf.update({ where: { id: linkId }, data: { menge: neueMenge } });
-
 		await createAuditLog(
-			locals.user!.id,
+			locals.user.id,
 			'MATERIAL_MENGE_GEAENDERT',
 			{ linkId, neueMenge },
 			params.id
@@ -364,10 +335,10 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	// 3. MATERIAL ENTFERNEN
 	removeMaterialFromStep: async ({ request, locals, params }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
+
 		const data = await request.formData();
 		const linkId = data.get('linkId') as string;
 
@@ -376,17 +347,14 @@ export const actions: Actions = {
 			include: { schritt: true }
 		});
 		if (!bedarf) return fail(404);
-
 		if (bedarf.schritt.status === 'fertig')
 			return fail(400, { message: 'Schritt ist bereits fertig.' });
 
 		await prisma.materialBedarf.delete({ where: { id: linkId } });
-
-		await createAuditLog(locals.user!.id, 'MATERIAL_ENTFERNT', { linkId }, params.id);
+		await createAuditLog(locals.user.id, 'MATERIAL_ENTFERNT', { linkId }, params.id);
 		return { success: true };
 	},
 
-	// 4. SCHRITT UPDATE (Admin Direkt)
 	updateSchritt: async ({ request, locals, params }) => {
 		if (!locals.user || (locals.user.role !== Role.ADMIN && locals.user.role !== Role.INNENDIENST))
 			return fail(403);
@@ -403,10 +371,8 @@ export const actions: Actions = {
 			where: { id: schrittId },
 			include: { materialien: { include: { material: true } } }
 		});
-
 		if (!alterSchritt) return fail(404);
 
-		// Check bei Admin: Genug Material da?
 		if (neuerStatus === 'fertig' && alterSchritt.status !== 'fertig') {
 			const missing: string[] = [];
 			for (const m of alterSchritt.materialien) {
@@ -443,7 +409,7 @@ export const actions: Actions = {
 		});
 
 		await createAuditLog(
-			locals.user!.id,
+			locals.user.id,
 			'SCHRITT_AKTUALISIERT',
 			{ schrittId, status: neuerStatus },
 			params.id,
@@ -452,9 +418,9 @@ export const actions: Actions = {
 		return { success: true };
 	},
 
-	// 5. APPROVE UPDATE (Innendienst)
 	approveUpdate: async ({ request, locals, url }) => {
 		if (!locals.user || locals.user.role === Role.HANDWERKER) return fail(403);
+
 		const data = await request.formData();
 		const updateId = data.get('updateId') as string;
 		const update = await prisma.handwerkerUpdate.findUnique({
@@ -463,13 +429,7 @@ export const actions: Actions = {
 				schritt: {
 					include: {
 						materialien: true,
-						projekt: {
-							select: {
-								id: true,
-								auftragsnummer: true,
-								kundenname: true
-							}
-						}
+						projekt: { select: { id: true, auftragsnummer: true, kundenname: true } }
 					}
 				}
 			}
@@ -477,7 +437,6 @@ export const actions: Actions = {
 
 		if (!update || update.status !== 'ausstehend') return fail(400);
 
-		// Check bei Approval: Genug Material da für Statuswechsel?
 		if (
 			update.typ === 'STATUS_AENDERUNG' &&
 			update.neuerStatus === 'fertig' &&
@@ -495,7 +454,6 @@ export const actions: Actions = {
 			}
 		}
 
-		// Check bei Approval: Genug Material da für Material-Anforderung in bereits fertigem Schritt?
 		if (
 			update.typ === 'MATERIAL_ANFORDERUNG' &&
 			update.schritt.status === 'fertig' &&
@@ -545,7 +503,6 @@ export const actions: Actions = {
 							menge: update.menge
 						}
 					});
-					// Falls Schritt schon fertig -> Abbuchen
 					if (update.schritt.status === 'fertig') {
 						await tx.material.update({
 							where: { id: update.materialId },
@@ -572,7 +529,6 @@ export const actions: Actions = {
 			});
 		});
 
-		// Send notification to customer about the approved update
 		const baseUrl = `${url.protocol}//${url.host}`;
 		const neuerStatus = update.neuerStatus || update.schritt.status;
 		const fortschritt = update.neuerFortschritt ?? update.schritt.fortschritt;
@@ -580,8 +536,8 @@ export const actions: Actions = {
 		const notification = notifyCustomerAboutStepUpdate({
 			auftragsnummer: update.schritt.projekt.auftragsnummer,
 			schrittTitel: update.schritt.titel,
-			neuerStatus: neuerStatus,
-			fortschritt: fortschritt,
+			neuerStatus,
+			fortschritt,
 			projektId: update.schritt.projekt.id,
 			kundenname: update.schritt.projekt.kundenname,
 			baseUrl
@@ -590,13 +546,11 @@ export const actions: Actions = {
 		return { success: true, notification };
 	},
 
-	// 6. SUBMIT UPDATE (HANDWERKER)
 	submitUpdate: async ({ request, locals }) => {
 		if (!locals.user) return fail(403);
+
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
-
-		// Prüfen ob es ein Material-Antrag ist (Entweder ID da oder "isNew" Flag)
 		const isNew = data.get('isNew') === 'true';
 		const materialIdParam = data.get('materialId') as string | null;
 
@@ -609,12 +563,10 @@ export const actions: Actions = {
 			if (schritt?.status === 'fertig')
 				return fail(400, { message: 'Schritt ist fertig. Keine Änderungen möglich.' });
 
-			// NEU: Material ID ermitteln (Erstellt Material, falls es neu ist)
 			const finalMaterialId = await getOrCreateMaterialId(data);
 			if (!finalMaterialId)
 				return fail(400, { message: 'Material konnte nicht erstellt/gefunden werden.' });
 
-			// Duplikat Check
 			const existing = await prisma.materialBedarf.findUnique({
 				where: { schrittId_materialId: { schrittId, materialId: finalMaterialId } }
 			});
@@ -627,13 +579,12 @@ export const actions: Actions = {
 					schrittId,
 					materialId: finalMaterialId,
 					menge,
-					eingereichtVon: locals.user!.id
+					eingereichtVon: locals.user.id
 				}
 			});
 			return { success: true, message: 'Materialanforderung eingereicht.' };
 		}
 
-		// Status Update
 		const statusValue = data.get('status') as string | null;
 		const neuerStatus =
 			statusValue && statusValue.trim() !== '' ? (statusValue as SchrittStatus) : null;
@@ -641,14 +592,10 @@ export const actions: Actions = {
 		const neuerFortschritt =
 			fortschrittValue && fortschrittValue.trim() !== '' ? parseInt(fortschrittValue) : null;
 
-		// Validate that at least one field is provided
 		if (!neuerStatus && neuerFortschritt === null) {
-			return fail(400, {
-				message: 'Bitte geben Sie einen Status oder Fortschritt an.'
-			});
+			return fail(400, { message: 'Bitte geben Sie einen Status oder Fortschritt an.' });
 		}
 
-		// Lager Check vor Antrag
 		if (neuerStatus === 'fertig') {
 			const schritt = await prisma.schritt.findUnique({
 				where: { id: schrittId },
@@ -672,26 +619,26 @@ export const actions: Actions = {
 				schrittId,
 				neuerStatus,
 				neuerFortschritt,
-				eingereichtVon: locals.user!.id
+				eingereichtVon: locals.user.id
 			}
 		});
 		return { success: true, message: 'Update eingereicht.' };
 	},
 
-	// --- RESTLICHE ACTIONS ---
 	uploadBild: async ({ request, locals, params }) => {
 		if (!locals.user) return fail(403);
+
 		const data = await request.formData();
 		const schrittId = data.get('schrittId') as string;
 		const file = data.get('bild') as File;
 		const beschreibung = data.get('beschreibung') as string;
 
 		if (!schrittId || !file || file.size === 0) return fail(400);
-		const buffer = Buffer.from(await file.arrayBuffer());
 
-		const user = await prisma.user.findUnique({ where: { id: locals.user!.id } });
+		const buffer = Buffer.from(await file.arrayBuffer());
+		const user = await prisma.user.findUnique({ where: { id: locals.user.id } });
 		const uploaderName = user ? `${user.vorname} ${user.nachname}` : 'Unbekannt';
-		const isHandwerker = locals.user!.role === Role.HANDWERKER;
+		const isHandwerker = locals.user.role === Role.HANDWERKER;
 
 		const bild = await prisma.bild.create({
 			data: {
@@ -706,10 +653,10 @@ export const actions: Actions = {
 
 		if (isHandwerker) {
 			await prisma.handwerkerUpdate.create({
-				data: { typ: 'FOTO_UPLOAD', schrittId, bildId: bild.id, eingereichtVon: locals.user!.id }
+				data: { typ: 'FOTO_UPLOAD', schrittId, bildId: bild.id, eingereichtVon: locals.user.id }
 			});
 			await createAuditLog(
-				locals.user!.id,
+				locals.user.id,
 				'FOTO_HOCHGELADEN_PENDING',
 				{ bildId: bild.id, schrittId },
 				params.id,
@@ -719,7 +666,7 @@ export const actions: Actions = {
 		}
 
 		await createAuditLog(
-			locals.user!.id,
+			locals.user.id,
 			'FOTO_HOCHGELADEN',
 			{ bildId: bild.id, schrittId },
 			params.id,
@@ -733,7 +680,7 @@ export const actions: Actions = {
 		const data = await request.formData();
 		const bildId = data.get('bildId') as string;
 		await prisma.bild.delete({ where: { id: bildId } });
-		await createAuditLog(locals.user!.id, 'FOTO_GELOESCHT', { bildId }, params.id);
+		await createAuditLog(locals.user.id, 'FOTO_GELOESCHT', { bildId }, params.id);
 		return { success: true };
 	},
 
@@ -745,11 +692,11 @@ export const actions: Actions = {
 
 		if (locals.user.role === Role.HANDWERKER) {
 			await prisma.handwerkerUpdate.create({
-				data: { typ: 'NOTIZ', schrittId, notizText: text, eingereichtVon: locals.user!.id }
+				data: { typ: 'NOTIZ', schrittId, notizText: text, eingereichtVon: locals.user.id }
 			});
 		} else {
 			await prisma.notiz.create({
-				data: { text, schrittId, erstelltVon: locals.user!.id, sichtbarFuerKunde: false }
+				data: { text, schrittId, erstelltVon: locals.user.id, sichtbarFuerKunde: false }
 			});
 		}
 		return { success: true };
@@ -778,7 +725,7 @@ export const actions: Actions = {
 
 		await prisma.handwerkerUpdate.update({
 			where: { id: updateId },
-			data: { status: 'abgelehnt', bearbeitetVon: locals.user!.id, bearbeitetAm: new Date() }
+			data: { status: 'abgelehnt', bearbeitetVon: locals.user.id, bearbeitetAm: new Date() }
 		});
 		return { success: true };
 	},

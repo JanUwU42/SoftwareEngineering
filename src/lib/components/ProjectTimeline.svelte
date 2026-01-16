@@ -19,19 +19,16 @@
 	const isInnendienst = $derived(userRole === 'ADMIN' || userRole === 'INNENDIENST');
 	const sortierteSchritte = $derived([...schritte].sort((a, b) => a.reihenfolge - b.reihenfolge));
 
-	// States
 	let expandedSteps = new SvelteSet<string>();
 	let lightboxImage = $state<{ url: string; beschreibung?: string } | null>(null);
 	let editModal: HTMLDialogElement;
 	let editingStep = $state<ProjectStep | null>(null);
 
-	// Form Visibility
 	let showUpdateForm = $state<Record<string, boolean>>({});
 	let showNotizForm = $state<Record<string, boolean>>({});
 	let showMaterialForm = $state<Record<string, boolean>>({});
 	let showMaterialRequestForm = $state<Record<string, boolean>>({});
 
-	// NEU: Toggle State für "Neues Material anlegen" (Pro Schritt)
 	let isNewMaterialMode = $state<Record<string, boolean>>({});
 
 	let editingMaterialId = $state<string | null>(null);

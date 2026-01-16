@@ -8,7 +8,6 @@
 	let email = '';
 	let loading = false;
 
-	// Log password reset notification to browser console
 	$: if (form?.notification) {
 		const n = form.notification;
 		console.log('═'.repeat(60));

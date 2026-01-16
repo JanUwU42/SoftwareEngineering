@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["driverAdapters"]
 }
 
@@ -33,15 +33,15 @@ enum ApprovalStatus {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String
-  vorname      String
-  nachname     String
-  erstelltAm   DateTime  @default(now())
-  role         Role      @default(HANDWERKER)
-  projekte     Projekt[]
-  sessions     Session[]
+  id                  String               @id @default(uuid())
+  email               String               @unique
+  passwordHash        String
+  vorname             String
+  nachname            String
+  erstelltAm          DateTime             @default(now())
+  role                Role                 @default(HANDWERKER)
+  projekte            Projekt[]
+  sessions            Session[]
   passwordResetTokens PasswordResetToken[]
 
   // Handwerker updates submitted by this user
@@ -50,51 +50,51 @@ model User {
   bearbeiteteUpdates  HandwerkerUpdate[] @relation("ReviewedUpdates")
 
   // Notes created by this user
-  notizen      Notiz[]
+  notizen Notiz[]
 
   // Audit log entries
-  auditLogs    AuditLog[]
+  auditLogs AuditLog[]
 }
 
 model Session {
   id        String   @id
   expiresAt DateTime
 
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   projektId String?
   projekt   Projekt? @relation(fields: [projektId], references: [id], onDelete: Cascade)
 }
 
 model Projekt {
-  id                  String   @id @default(uuid())
-  auftragsnummer      String   @unique
+  id                  String  @id @default(uuid())
+  auftragsnummer      String  @unique
   kundenname          String
   projektbezeichnung  String
-  projektbeschreibung String?  @db.Text
+  projektbeschreibung String? @db.Text
   mitarbeiter         User[]
 
-  geplanterStart      DateTime
-  geplantesEnde       DateTime
+  geplanterStart DateTime
+  geplantesEnde  DateTime
 
-  erstelltAm          DateTime @default(now())
-  aktualisiertAm      DateTime @updatedAt
+  erstelltAm     DateTime @default(now())
+  aktualisiertAm DateTime @updatedAt
 
-  adresse             Adresse?
-  schritte            Schritt[]
-  sessions            Session[]
+  adresse  Adresse?
+  schritte Schritt[]
+  sessions Session[]
 }
 
 model Adresse {
-  id          String  @id @default(uuid())
-  strasse     String
-  hausnummer  String
-  plz         String
-  ort         String
+  id         String @id @default(uuid())
+  strasse    String
+  hausnummer String
+  plz        String
+  ort        String
 
-  projektId   String  @unique
-  projekt     Projekt @relation(fields: [projektId], references: [id], onDelete: Cascade)
+  projektId String  @unique
+  projekt   Projekt @relation(fields: [projektId], references: [id], onDelete: Cascade)
 }
 
 model Schritt {
@@ -107,19 +107,19 @@ model Schritt {
   fortschritt  Int           @default(0)
   reihenfolge  Int
 
-  projektId    String
-  projekt      Projekt       @relation(fields: [projektId], references: [id], onDelete: Cascade)
+  projektId String
+  projekt   Projekt @relation(fields: [projektId], references: [id], onDelete: Cascade)
 
-  materialien  MaterialBedarf[]
-  bilder       Bild[]
-  notizen      Notiz[]
+  materialien MaterialBedarf[]
+  bilder      Bild[]
+  notizen     Notiz[]
 
   // Pending updates for this step
   pendingUpdates HandwerkerUpdate[]
 }
 
 model Bild {
-  id             String   @id @default(uuid())
+  id String @id @default(uuid())
 
   daten          Bytes
   mimeType       String
@@ -127,36 +127,36 @@ model Bild {
   hochgeladenAm  DateTime @default(now())
   hochgeladenVon String
 
-  schrittId      String
-  schritt        Schritt  @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  schrittId String
+  schritt   Schritt @relation(fields: [schrittId], references: [id], onDelete: Cascade)
 
   // Approval status - photos from Handwerker need approval before customer can see
-  freigegeben    Boolean  @default(true)
+  freigegeben Boolean @default(true)
 
   // Reference to the update if this was uploaded by Handwerker
   handwerkerUpdate HandwerkerUpdate?
 }
 
 model Material {
-  id      String   @id @default(uuid())
+  id      String @id @default(uuid())
   name    String
   einheit String
-  bestand Float    @default(0)
+  bestand Float  @default(0)
 
-  verwendungen MaterialBedarf[]
+  verwendungen      MaterialBedarf[]
   handwerkerUpdates HandwerkerUpdate[]
 }
 
 model MaterialBedarf {
-  id          String  @id @default(uuid())
-  menge       Float
-  bemerkung   String?
+  id        String  @id @default(uuid())
+  menge     Float
+  bemerkung String?
 
-  schrittId   String
-  schritt     Schritt @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  schrittId String
+  schritt   Schritt @relation(fields: [schrittId], references: [id], onDelete: Cascade)
 
-  materialId  String
-  material    Material @relation(fields: [materialId], references: [id])
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id])
 
   @@unique([schrittId, materialId])
 }
@@ -169,39 +169,39 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
   used      Boolean  @default(false)
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Pending updates from Handwerker that need Innendienst approval
 model HandwerkerUpdate {
-  id              String         @id @default(uuid())
-  typ             UpdateTyp
+  id  String    @id @default(uuid())
+  typ UpdateTyp
 
   // Reference to the step being updated
-  schrittId       String
-  schritt         Schritt        @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  schrittId String
+  schritt   Schritt @relation(fields: [schrittId], references: [id], onDelete: Cascade)
 
   // For status/progress updates - store the proposed new values
-  neuerStatus     SchrittStatus?
+  neuerStatus      SchrittStatus?
   neuerFortschritt Int?
 
   // For notes
-  notizText       String?        @db.Text
+  notizText String? @db.Text
 
   // For photo uploads - reference to the uploaded image
-  bildId          String?        @unique
-  bild            Bild?          @relation(fields: [bildId], references: [id], onDelete: Cascade)
+  bildId String? @unique
+  bild   Bild?   @relation(fields: [bildId], references: [id], onDelete: Cascade)
 
   // MATERIAL ANTRÄGE ---
-  menge           Float?         // Die angeforderte Menge
-  materialId      String?
-  material        Material?      @relation(fields: [materialId], references: [id])
+  menge      Float? // Die angeforderte Menge
+  materialId String?
+  material   Material? @relation(fields: [materialId], references: [id])
 
   // Who submitted this update
-  eingereichtVon  String
-  bearbeiter      User           @relation("SubmittedUpdates", fields: [eingereichtVon], references: [id])
-  eingereichtAm   DateTime       @default(now())
+  eingereichtVon String
+  bearbeiter     User     @relation("SubmittedUpdates", fields: [eingereichtVon], references: [id])
+  eingereichtAm  DateTime @default(now())
 
   // Approval workflow
   status          ApprovalStatus @default(ausstehend)
@@ -213,18 +213,18 @@ model HandwerkerUpdate {
 
 // Notes/remarks on project steps
 model Notiz {
-  id              String   @id @default(uuid())
-  text            String   @db.Text
-  erstelltAm      DateTime @default(now())
-  aktualisiertAm  DateTime @updatedAt
+  id             String   @id @default(uuid())
+  text           String   @db.Text
+  erstelltAm     DateTime @default(now())
+  aktualisiertAm DateTime @updatedAt
 
   // Author
-  erstelltVon     String
-  autor           User     @relation(fields: [erstelltVon], references: [id])
+  erstelltVon String
+  autor       User   @relation(fields: [erstelltVon], references: [id])
 
   // Which step this note belongs to
-  schrittId       String
-  schritt         Schritt  @relation(fields: [schrittId], references: [id], onDelete: Cascade)
+  schrittId String
+  schritt   Schritt @relation(fields: [schrittId], references: [id], onDelete: Cascade)
 
   // Visibility control - notes are internal by default
   // Only becomes visible to customer after Innendienst approval
@@ -233,24 +233,19 @@ model Notiz {
 
 // Immutable audit log for all changes
 model AuditLog {
-  id          String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  // What action was performed
-  aktion      String   // e.g., "STATUS_GEAENDERT", "FOTO_HOCHGELADEN", "NOTIZ_ERSTELLT", "UPDATE_GENEHMIGT"
+  aktion String
 
-  // JSON details with context (old values, new values, etc.)
-  details     String   @db.Text
+  details String @db.Text
 
-  // When this happened
-  zeitpunkt   DateTime @default(now())
+  zeitpunkt DateTime @default(now())
 
-  // Who performed this action
-  userId      String
-  benutzer    User     @relation(fields: [userId], references: [id])
+  userId   String
+  benutzer User   @relation(fields: [userId], references: [id])
 
-  // Optional references for context
-  projektId   String?
-  schrittId   String?
+  projektId String?
+  schrittId String?
 
   // This table should never be updated or deleted - audit entries are immutable
   @@index([projektId])

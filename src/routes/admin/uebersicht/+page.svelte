@@ -1,10 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 
-	// Holen der Daten vom Server
 	let { data }: { data: PageData } = $props();
 
-	// Hilfsfunktion zum Formatieren
 	function formatDate(dateString: string | null): string {
 		if (!dateString) return '–';
 		return new Date(dateString).toLocaleDateString('de-DE', {
@@ -14,7 +12,6 @@
 		});
 	}
 
-	// Rollen-Checks für die UI
 	const userRole = $derived((data as unknown as { userRole: string }).userRole);
 	const isAdmin = $derived(userRole === 'ADMIN');
 	const isHandwerker = $derived(userRole === 'HANDWERKER');

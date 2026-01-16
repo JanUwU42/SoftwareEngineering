@@ -36,7 +36,6 @@
 
 	let { data, form }: Props = $props();
 
-	// Log customer notification to browser console when an update is approved
 	$effect(() => {
 		if (form?.notification) {
 			const n = form.notification;

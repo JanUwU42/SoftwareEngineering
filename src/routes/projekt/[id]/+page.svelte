@@ -10,99 +10,93 @@
 	import { enhance } from '$app/forms';
 	import { slide } from 'svelte/transition';
 
-	interface Notification {
-		type: string;
-		an: string;
-		betreff: string;
-		auftragsnummer: string;
-		projektschritt: string;
-		neuerStatus: string;
-		fortschritt: number;
-		projektLink: string;
-		nachricht: string;
-	}
-
-	interface ProjectData {
-		mitarbeiter: { id: string; vorname: string; nachname: string; role: string }[];
-		metadata: {
-			auftragsnummer: string;
-			kundenname: string;
-			projektadresse: {
-				strasse: string;
-				hausnummer: string;
-				plz: string;
-				ort: string;
-			};
-			projektbezeichnung: string;
-			projektbeschreibung?: string;
-			geplanterStart: string;
-			geplantesEnde: string;
-		};
-		schritte: {
-			id: string;
-			titel: string;
-			beschreibung?: string;
-			startDatum: string;
-			endDatum: string;
-			status: string;
-			fortschritt: number;
-			reihenfolge: number;
-			material: {
-				id: string;
-				linkId: string;
-				name: string;
-				menge: number;
-				einheit: string;
-				bemerkung?: string;
-			}[];
-			bilder: {
-				id: string;
-				url: string;
-				beschreibung?: string;
-				hochgeladenAm: string;
-				hochgeladenVon: string;
-				freigegeben: boolean;
-			}[];
-			notizen: {
-				id: string;
-				text: string;
-				erstelltAm: string;
-				autorName: string;
-				sichtbarFuerKunde: boolean;
-			}[];
-			pendingUpdates: {
-				id: string;
-				typ: string;
-				neuerStatus?: string;
-				neuerFortschritt?: number;
-				notizText?: string;
-				eingereichtAm: string;
-				bearbeiterName: string;
-				eingereichtVonId: string;
-				bild?: { id: string; url: string; beschreibung?: string };
-				menge?: number;
-				materialName?: string;
-				materialEinheit?: string;
-			}[];
-		}[];
-		materialListe: Material[];
-	}
-
 	interface Props {
 		data: {
-			project: ProjectData;
+			project: {
+				mitarbeiter: { id: string; vorname: string; nachname: string; role: string }[];
+				metadata: {
+					auftragsnummer: string;
+					kundenname: string;
+					projektadresse: { strasse: string; hausnummer: string; plz: string; ort: string };
+					projektbezeichnung: string;
+					projektbeschreibung?: string;
+					geplanterStart: string;
+					geplantesEnde: string;
+				};
+				schritte: {
+					id: string;
+					titel: string;
+					beschreibung?: string;
+					startDatum: string;
+					endDatum: string;
+					status: string;
+					fortschritt: number;
+					reihenfolge: number;
+					material: {
+						id: string;
+						linkId: string;
+						name: string;
+						menge: number;
+						einheit: string;
+						bemerkung?: string;
+					}[];
+					bilder: {
+						id: string;
+						url: string;
+						beschreibung?: string;
+						hochgeladenAm: string;
+						hochgeladenVon: string;
+						freigegeben: boolean;
+					}[];
+					notizen: {
+						id: string;
+						text: string;
+						erstelltAm: string;
+						autorName: string;
+						sichtbarFuerKunde: boolean;
+					}[];
+					pendingUpdates: {
+						id: string;
+						typ: string;
+						neuerStatus?: string;
+						neuerFortschritt?: number;
+						notizText?: string;
+						eingereichtAm: string;
+						bearbeiterName: string;
+						eingereichtVonId: string;
+						bild?: { id: string; url: string; beschreibung?: string };
+						menge?: number;
+						materialName?: string;
+						materialEinheit?: string;
+					}[];
+				}[];
+				materialListe: Material[];
+			};
 			isStaff: boolean;
 			userRole?: 'ADMIN' | 'INNENDIENST' | 'HANDWERKER';
 			availableHandwerker: { id: string; vorname: string; nachname: string }[];
 			allMaterials: Material[];
 			pendingUpdatesCount: number;
 		};
-		form: { success?: boolean; message?: string; notification?: Notification } | null;
+		form: {
+			success?: boolean;
+			message?: string;
+			notification?: {
+				type: string;
+				an: string;
+				betreff: string;
+				auftragsnummer: string;
+				projektschritt: string;
+				neuerStatus: string;
+				fortschritt: number;
+				projektLink: string;
+				nachricht: string;
+			};
+		} | null;
 	}
 
 	let { data, form }: Props = $props();
 
-	// --- Messages (Toast) ---
 	let showMessage = $state(false);
 	let messageText = $state('');
 	let messageType = $state<'success' | 'error'>('success');
@@ -112,19 +106,14 @@
 			messageText = form.message;
 			messageType = form.success ? 'success' : 'error';
 			showMessage = true;
-			setTimeout(() => {
-				showMessage = false;
-			}, 5000);
+			setTimeout(() => (showMessage = false), 5000);
 		} else if (form?.success) {
 			messageText = 'Gespeichert.';
 			messageType = 'success';
 			showMessage = true;
-			setTimeout(() => {
-				showMessage = false;
-			}, 3000);
+			setTimeout(() => (showMessage = false), 3000);
 		}
 
-		// Log customer notification to browser console when an update is approved
 		if (form?.notification) {
 			const n = form.notification;
 			console.log('═'.repeat(60));
@@ -146,7 +135,6 @@
 		showMessage = false;
 	}
 
-	// --- Logik ---
 	const canEdit = $derived(
 		data.isStaff && (data.userRole === 'ADMIN' || data.userRole === 'INNENDIENST')
 	);
@@ -162,7 +150,6 @@
 		geplantesEnde: new Date(data.project.metadata.geplantesEnde)
 	});
 
-	// Mapping
 	const schritte: ProjectStep[] = $derived(
 		data.project.schritte.map((schritt) => ({
 			id: schritt.id,
@@ -183,7 +170,6 @@
 				freigegeben: bild.freigegeben
 			})),
 			notizen: schritt.notizen ?? [],
-			// WICHTIG: Hier mappen wir die neuen Felder für Material-Anträge
 			pendingUpdates:
 				schritt.pendingUpdates?.map((u) => ({
 					id: u.id,
@@ -195,7 +181,6 @@
 					bearbeiterName: u.bearbeiterName,
 					eingereichtVonId: u.eingereichtVonId,
 					bild: u.bild ?? null,
-					// Sicherstellen, dass diese Felder existieren (kommen vom Server Load)
 					materialName: u.materialName ?? null,
 					materialEinheit: u.materialEinheit ?? null,
 					menge: u.menge ?? null
@@ -213,7 +198,6 @@
 	const inArbeitSchritte = $derived(schritte.filter((s) => s.status === 'in_arbeit').length);
 	const offeneSchritte = $derived(schritte.filter((s) => s.status === 'offen').length);
 
-	// --- MODALS ---
 	let projectModal: HTMLDialogElement;
 	let stepModal: HTMLDialogElement;
 
@@ -272,8 +256,9 @@
 						<span>Updates</span>
 						<span
 							class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-xs font-bold text-white"
-							>{data.pendingUpdatesCount}</span
 						>
+							{data.pendingUpdatesCount}
+						</span>
 					</a>
 				{/if}
 				{#if data.isStaff}
@@ -308,25 +293,22 @@
 			<div class="rounded-xl bg-white p-6 shadow-md">
 				<p class="text-sm font-medium text-gray-500">Fertig</p>
 				<div class="mt-2 flex items-end gap-2">
-					<span class="text-4xl font-bold text-green-600">{fertigeSchritte}</span><span
-						class="mb-1 text-gray-500">von {schritte.length}</span
-					>
+					<span class="text-4xl font-bold text-green-600">{fertigeSchritte}</span>
+					<span class="mb-1 text-gray-500">von {schritte.length}</span>
 				</div>
 			</div>
 			<div class="rounded-xl bg-white p-6 shadow-md">
 				<p class="text-sm font-medium text-gray-500">In Arbeit</p>
 				<div class="mt-2 flex items-end gap-2">
-					<span class="text-4xl font-bold text-blue-600">{inArbeitSchritte}</span><span
-						class="mb-1 text-gray-500">Schritte</span
-					>
+					<span class="text-4xl font-bold text-blue-600">{inArbeitSchritte}</span>
+					<span class="mb-1 text-gray-500">Schritte</span>
 				</div>
 			</div>
 			<div class="rounded-xl bg-white p-6 shadow-md">
 				<p class="text-sm font-medium text-gray-500">Offen</p>
 				<div class="mt-2 flex items-end gap-2">
-					<span class="text-4xl font-bold text-gray-600">{offeneSchritte}</span><span
-						class="mb-1 text-gray-500">Schritte</span
-					>
+					<span class="text-4xl font-bold text-gray-600">{offeneSchritte}</span>
+					<span class="mb-1 text-gray-500">Schritte</span>
 				</div>
 			</div>
 		</div>
@@ -342,7 +324,8 @@
 							>
 								<span class="text-sm font-medium text-gray-700">{ma.vorname} {ma.nachname}</span>
 								<form action="?/removeMitarbeiter" method="POST" use:enhance>
-									<input type="hidden" name="userId" value={ma.id} /><button
+									<input type="hidden" name="userId" value={ma.id} />
+									<button
 										type="submit"
 										class="rounded-full p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
 										>✕</button
@@ -361,28 +344,36 @@
 						required
 					>
 						<option value="" disabled selected>Handwerker auswählen...</option>
-						{#each data.availableHandwerker as h (h.id)}{#if !data.project.mitarbeiter?.some((m) => m.id === h.id)}<option
-									value={h.id}>{h.vorname} {h.nachname}</option
-								>{/if}{/each}
+						{#each data.availableHandwerker as h (h.id)}
+							{#if !data.project.mitarbeiter?.some((m) => m.id === h.id)}
+								<option value={h.id}>{h.vorname} {h.nachname}</option>
+							{/if}
+						{/each}
 					</select>
 					<button
 						type="submit"
 						class="rounded-md bg-orange-600 px-3 py-2 text-sm text-white shadow-sm hover:bg-orange-700"
-						>Hinzufügen</button
 					>
+						Hinzufügen
+					</button>
 				</form>
 			</div>
 		{/if}
 
-		<div class="mb-8"><ProjectMetadataCard {metadata} {materialListe} /></div>
+		<div class="mb-8">
+			<ProjectMetadataCard {metadata} {materialListe} />
+		</div>
 
 		<div class="mb-4 flex items-center justify-between">
 			<h2 class="text-xl font-bold text-gray-900">Projektverlauf</h2>
-			{#if canEdit}<button
+			{#if canEdit}
+				<button
 					onclick={() => stepModal.showModal()}
 					class="flex items-center gap-1 rounded-md bg-green-600 px-3 py-2 text-sm text-white shadow-sm hover:bg-green-700"
-					><span>+ Schritt hinzufügen</span></button
-				>{/if}
+				>
+					<span>+ Schritt hinzufügen</span>
+				</button>
+			{/if}
 		</div>
 
 		<div>
@@ -405,8 +396,8 @@
 		<form action="?/updateProject" method="POST" use:enhance class="space-y-4">
 			<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 				<div>
-					<label for="proj-bez" class="block text-sm font-medium text-gray-700">Bezeichnung</label
-					><input
+					<label for="proj-bez" class="block text-sm font-medium text-gray-700">Bezeichnung</label>
+					<input
 						id="proj-bez"
 						type="text"
 						name="projektbezeichnung"
@@ -418,7 +409,8 @@
 				<div>
 					<label for="proj-start" class="block text-sm font-medium text-gray-700"
 						>Geplanter Start</label
-					><input
+					>
+					<input
 						id="proj-start"
 						type="date"
 						name="geplanterStart"
@@ -430,7 +422,8 @@
 				<div>
 					<label for="proj-end" class="block text-sm font-medium text-gray-700"
 						>Geplantes Ende</label
-					><input
+					>
+					<input
 						id="proj-end"
 						type="date"
 						name="geplantesEnde"
@@ -484,7 +477,8 @@
 			<div class="mt-2 border-t pt-4">
 				<label for="projektbeschreibung" class="block text-sm font-medium text-gray-700"
 					>Beschreibung</label
-				><textarea
+				>
+				<textarea
 					id="projektbeschreibung"
 					name="projektbeschreibung"
 					rows="3"
@@ -496,7 +490,8 @@
 					type="button"
 					onclick={() => projectModal.close()}
 					class="rounded-md px-4 py-2 text-gray-700 hover:bg-gray-100">Abbrechen</button
-				><button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+				>
+				<button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
 					>Speichern</button
 				>
 			</div>
@@ -512,8 +507,8 @@
 		<h3 class="mb-4 text-lg font-bold">Neuen Schritt anlegen</h3>
 		<form action="?/createSchritt" method="POST" use:enhance class="space-y-4">
 			<div>
-				<label for="schritt-titel" class="block text-sm font-medium text-gray-700">Titel</label
-				><input
+				<label for="schritt-titel" class="block text-sm font-medium text-gray-700">Titel</label>
+				<input
 					id="schritt-titel"
 					type="text"
 					name="titel"
@@ -523,8 +518,8 @@
 			</div>
 			<div class="grid grid-cols-2 gap-4">
 				<div>
-					<label for="schritt-start" class="block text-sm font-medium text-gray-700">Start</label
-					><input
+					<label for="schritt-start" class="block text-sm font-medium text-gray-700">Start</label>
+					<input
 						id="schritt-start"
 						type="date"
 						name="startDatum"
@@ -533,8 +528,8 @@
 					/>
 				</div>
 				<div>
-					<label for="schritt-ende" class="block text-sm font-medium text-gray-700">Ende</label
-					><input
+					<label for="schritt-ende" class="block text-sm font-medium text-gray-700">Ende</label>
+					<input
 						id="schritt-ende"
 						type="date"
 						name="endDatum"
@@ -546,7 +541,8 @@
 			<div>
 				<label for="schritt-beschreibung" class="block text-sm font-medium text-gray-700"
 					>Beschreibung</label
-				><textarea
+				>
+				<textarea
 					id="schritt-beschreibung"
 					name="beschreibung"
 					rows="2"
@@ -558,7 +554,8 @@
 					type="button"
 					onclick={() => stepModal.close()}
 					class="rounded-md px-4 py-2 text-gray-700 hover:bg-gray-100">Abbrechen</button
-				><button
+				>
+				<button
 					type="submit"
 					class="rounded-md bg-green-600 px-4 py-2 text-white hover:bg-green-700">Erstellen</button
 				>

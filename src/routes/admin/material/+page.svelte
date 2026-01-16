@@ -22,7 +22,7 @@
 	let { data, form }: Props = $props();
 
 	// --- STATE MIT RUNES ($state) ---
-	// WICHTIG: In Svelte 5 müssen Variablen, die die UI ändern, mit $state definiert werden.
+
 	let showCreateModal = $state(false);
 	let editingMaterial = $state<MaterialWithStock | null>(null);
 
