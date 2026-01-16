@@ -23,6 +23,7 @@ enum UpdateTyp {
   STATUS_AENDERUNG
   FOTO_UPLOAD
   NOTIZ
+  MATERIAL_ANFORDERUNG
 }
 
 enum ApprovalStatus {
@@ -143,6 +144,7 @@ model Material {
   bestand Float    @default(0)
 
   verwendungen MaterialBedarf[]
+  handwerkerUpdates HandwerkerUpdate[]
 }
 
 model MaterialBedarf {
@@ -190,6 +192,11 @@ model HandwerkerUpdate {
   // For photo uploads - reference to the uploaded image
   bildId          String?        @unique
   bild            Bild?          @relation(fields: [bildId], references: [id], onDelete: Cascade)
+
+  // MATERIAL ANTRÄGE ---
+  menge           Float?         // Die angeforderte Menge
+  materialId      String?
+  material        Material?      @relation(fields: [materialId], references: [id])
 
   // Who submitted this update
   eingereichtVon  String
