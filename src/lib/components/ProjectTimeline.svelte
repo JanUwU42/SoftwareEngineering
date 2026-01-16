@@ -30,6 +30,10 @@
 	let showUpdateForm = $state<Record<string, boolean>>({});
 	let showNotizForm = $state<Record<string, boolean>>({});
 	let showMaterialForm = $state<Record<string, boolean>>({});
+	let showMaterialRequestForm = $state<Record<string, boolean>>({});
+
+	// NEU: Toggle State für "Neues Material anlegen" (Pro Schritt)
+	let isNewMaterialMode = $state<Record<string, boolean>>({});
 
 	let editingMaterialId = $state<string | null>(null);
 
@@ -44,13 +48,17 @@
 
 	function toggleUpdateForm(id: string) { showUpdateForm[id] = !showUpdateForm[id]; }
 	function toggleNotizForm(id: string) { showNotizForm[id] = !showNotizForm[id]; }
-	function toggleMaterialForm(id: string) { showMaterialForm[id] = !showMaterialForm[id]; }
+	function toggleMaterialForm(id: string) { showMaterialForm[id] = !showMaterialForm[id]; isNewMaterialMode[id] = false; }
+	function toggleMaterialRequestForm(id: string) { showMaterialRequestForm[id] = !showMaterialRequestForm[id]; isNewMaterialMode[id] = false; }
+
+	function toggleNewMaterialMode(id: string) { isNewMaterialMode[id] = !isNewMaterialMode[id]; }
 
 	function startEditMaterial(linkId: string) { editingMaterialId = linkId; }
 	function cancelEditMaterial() { editingMaterialId = null; }
 
 	function toInputDate(date: Date) { return date.toISOString().split('T')[0]; }
 	function formatDate(date: Date) { return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+	function formatDateTime(str: string) { return new Date(str).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 
 	function getStatusStyles(status: string) {
 		switch (status) {
@@ -60,6 +68,12 @@
 		}
 	}
 	function getStatusIcon(status: string) { return status === 'fertig' ? '✓' : status === 'in_arbeit' ? '⚙' : '○'; }
+	function getUpdateTypLabel(typ: string) {
+		if (typ === 'STATUS_AENDERUNG') return 'Status';
+		if (typ === 'FOTO_UPLOAD') return 'Foto';
+		if (typ === 'MATERIAL_ANFORDERUNG') return 'Material';
+		return 'Notiz';
+	}
 </script>
 
 {#if lightboxImage}
@@ -103,7 +117,6 @@
 				{@const styles = getStatusStyles(schritt.status)}
 				{@const expanded = isExpanded(schritt.id)}
 				{@const availableMaterials = allMaterials.filter(m => !schritt.material.some(sm => sm.id === m.id))}
-
 				{@const isStepFinished = schritt.status === 'fertig'}
 
 				<div class="relative flex gap-4">
@@ -116,7 +129,9 @@
 									<span class="rounded-full border px-2.5 py-0.5 text-xs {styles.bgColor} {styles.textColor} {styles.borderColor}">{getStatusLabel(schritt.status)}</span>
 									{#if schritt.bilder.length > 0}<span class="rounded-full bg-purple-100 px-2.5 py-0.5 text-xs text-purple-700">📷 {schritt.bilder.length}</span>{/if}
 									{#if schritt.material.length > 0}<span class="rounded-full bg-green-100 px-2.5 py-0.5 text-xs text-green-700">📦 {schritt.material.length}</span>{/if}
-									{#if isInnendienst && schritt.pendingUpdates.length > 0}<span class="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs text-orange-700">⏳ {schritt.pendingUpdates.length} Updates</span>{/if}
+									{#if (isInnendienst || isHandwerker) && schritt.pendingUpdates.length > 0}
+										<span class="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs text-orange-700">⏳ {schritt.pendingUpdates.length} Ausstehend</span>
+									{/if}
 								</div>
 								<div class="mt-1 flex items-center gap-4 text-sm text-gray-500"><span>{formatDate(schritt.startDatum)} – {formatDate(schritt.endDatum)}</span><span class="{styles.textColor}">{schritt.fortschritt}%</span></div>
 							</div>
@@ -125,12 +140,12 @@
 
 						{#if expanded}
 							<div class="border-t p-4 {styles.borderColor} bg-white/30">
+
 								{#if canManage}
 									<div class="flex justify-end gap-2 mb-4 border-b border-gray-200 pb-2">
 										{#if !isStepFinished}
 											<button onclick={() => toggleMaterialForm(schritt.id)} class="text-green-600 hover:bg-green-50 px-2 py-1 rounded text-xs flex gap-1">➕ Material</button>
 										{/if}
-
 										<button onclick={() => openEditModal(schritt)} class="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs flex gap-1">✎ Bearbeiten</button>
 										<form action="?/deleteSchritt" method="POST" onsubmit={(e) => !confirm('Löschen?') && e.preventDefault()}><input type="hidden" name="schrittId" value={schritt.id} /><button class="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs">🗑 Löschen</button></form>
 									</div>
@@ -139,29 +154,133 @@
 										<div class="mb-4 bg-green-50 rounded p-4 border border-green-200" transition:slide>
 											<form action="?/addMaterialToStep" method="POST" use:enhance class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 												<input type="hidden" name="schrittId" value={schritt.id} />
-												<div class="sm:col-span-2">
-													<label class="text-xs">Material</label>
-													<select name="materialId" class="w-full text-sm rounded" required>
-														<option value="" disabled selected>Wählen...</option>
-														{#each availableMaterials as m}
-															<option value={m.id}>{m.name} (Bestand: {m.bestand} {m.einheit})</option>
-														{/each}
-													</select>
+												<input type="hidden" name="isNew" value={isNewMaterialMode[schritt.id] ? 'true' : 'false'} />
+
+												<div class="sm:col-span-3 flex justify-between items-center mb-1">
+													<span class="text-xs font-bold text-green-800">Material hinzufügen</span>
+													<button type="button" onclick={() => toggleNewMaterialMode(schritt.id)} class="text-xs text-blue-600 underline">
+														{isNewMaterialMode[schritt.id] ? 'Aus Liste wählen' : 'Neues Material anlegen'}
+													</button>
 												</div>
-												<div><label class="text-xs">Menge</label><input type="number" step="0.01" name="menge" class="w-full text-sm rounded" required /></div>
+
+												{#if isNewMaterialMode[schritt.id]}
+													<div class="sm:col-span-2 grid grid-cols-2 gap-2">
+														<input type="text" name="newMaterialName" placeholder="Bezeichnung (z.B. Spezialkleber)" class="w-full text-sm rounded" required={isNewMaterialMode[schritt.id]} />
+														<input type="text" name="newMaterialUnit" placeholder="Einheit (z.B. Dose)" class="w-full text-sm rounded" required={isNewMaterialMode[schritt.id]} />
+													</div>
+												{:else}
+													<div class="sm:col-span-2">
+														<select name="materialId" class="w-full text-sm rounded" required={!isNewMaterialMode[schritt.id]}>
+															<option value="" disabled selected>Wählen...</option>
+															{#each availableMaterials as m}
+																<option value={m.id}>{m.name} (Bestand: {m.bestand} {m.einheit})</option>
+															{/each}
+														</select>
+													</div>
+												{/if}
+
+												<div><input type="number" step="0.01" name="menge" placeholder="Menge" class="w-full text-sm rounded" required /></div>
+
 												<div class="sm:col-span-3 flex justify-end gap-2">
 													<button type="button" onclick={() => toggleMaterialForm(schritt.id)} class="text-xs text-gray-500">Abbrechen</button>
-													<button class="bg-green-600 text-white px-3 py-1 text-xs rounded" disabled={availableMaterials.length === 0}>Hinzufügen</button>
+													<button class="bg-green-600 text-white px-3 py-1 text-xs rounded" disabled={!isNewMaterialMode[schritt.id] && availableMaterials.length === 0}>Hinzufügen</button>
 												</div>
 											</form>
 										</div>
 									{/if}
 								{/if}
 
-								{#if isHandwerker}
-									<div class="flex gap-2 mb-4"><button onclick={() => toggleUpdateForm(schritt.id)} class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">Status Update</button><button onclick={() => toggleNotizForm(schritt.id)} class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">Notiz</button></div>
-									{#if showUpdateForm[schritt.id]}<div class="mb-4 p-3 bg-blue-50 rounded"><form action="?/submitUpdate" method="POST" use:enhance class="space-y-2"><input type="hidden" name="schrittId" value={schritt.id} /><select name="status" class="w-full text-sm rounded"><option value="">Status...</option><option value="offen">Offen</option><option value="in_arbeit">In Arbeit</option><option value="fertig">Fertig</option></select><input type="number" name="fortschritt" placeholder="%" class="w-full text-sm rounded" /><button class="bg-blue-600 text-white w-full py-1 text-xs rounded">Senden</button></form></div>{/if}
-									{#if showNotizForm[schritt.id]}<div class="mb-4 p-3 bg-yellow-50 rounded"><form action="?/addNotiz" method="POST" use:enhance class="space-y-2"><input type="hidden" name="schrittId" value={schritt.id} /><textarea name="text" class="w-full text-sm rounded"></textarea><button class="bg-yellow-600 text-white w-full py-1 text-xs rounded">Senden</button></form></div>{/if}
+								{#if isHandwerker && !isStepFinished}
+									<div class="flex flex-wrap gap-2 mb-4">
+										<button onclick={() => toggleUpdateForm(schritt.id)} class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs hover:bg-blue-200">Status Update</button>
+										<button onclick={() => toggleNotizForm(schritt.id)} class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs hover:bg-yellow-200">Notiz</button>
+										<button onclick={() => toggleMaterialRequestForm(schritt.id)} class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs hover:bg-green-200 flex items-center gap-1">
+											<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+											Material anfordern
+										</button>
+									</div>
+
+									{#if showUpdateForm[schritt.id]}<div class="mb-4 p-3 bg-blue-50 rounded border border-blue-100"><form action="?/submitUpdate" method="POST" use:enhance class="space-y-2"><input type="hidden" name="schrittId" value={schritt.id} /><select name="status" class="w-full text-sm rounded"><option value="">Status...</option><option value="offen">Offen</option><option value="in_arbeit">In Arbeit</option><option value="fertig">Fertig</option></select><input type="number" name="fortschritt" placeholder="%" class="w-full text-sm rounded" /><button class="bg-blue-600 text-white w-full py-1 text-xs rounded">Senden</button></form></div>{/if}
+
+									{#if showNotizForm[schritt.id]}<div class="mb-4 p-3 bg-yellow-50 rounded border border-yellow-100"><form action="?/addNotiz" method="POST" use:enhance class="space-y-2"><input type="hidden" name="schrittId" value={schritt.id} /><textarea name="text" class="w-full text-sm rounded" placeholder="Notiz..."></textarea><button class="bg-yellow-600 text-white w-full py-1 text-xs rounded">Senden</button></form></div>{/if}
+
+									{#if showMaterialRequestForm[schritt.id]}
+										<div class="mb-4 p-3 bg-green-50 rounded border border-green-100" transition:slide>
+											<form action="?/submitUpdate" method="POST" use:enhance class="space-y-2">
+												<input type="hidden" name="schrittId" value={schritt.id} />
+												<input type="hidden" name="isNew" value={isNewMaterialMode[schritt.id] ? 'true' : 'false'} />
+
+												<div class="flex justify-between items-center mb-1">
+													<h4 class="text-xs font-bold text-green-800">Material anfordern</h4>
+													<button type="button" onclick={() => toggleNewMaterialMode(schritt.id)} class="text-xs text-blue-600 underline">
+														{isNewMaterialMode[schritt.id] ? 'Aus Liste wählen' : 'Nicht gefunden? Neu anlegen'}
+													</button>
+												</div>
+
+												<div class="grid grid-cols-3 gap-2">
+													{#if isNewMaterialMode[schritt.id]}
+														<div class="col-span-2 grid grid-cols-2 gap-1">
+															<input type="text" name="newMaterialName" placeholder="Name" class="w-full text-sm rounded border-green-300" required={isNewMaterialMode[schritt.id]} />
+															<input type="text" name="newMaterialUnit" placeholder="Einheit" class="w-full text-sm rounded border-green-300" required={isNewMaterialMode[schritt.id]} />
+														</div>
+													{:else}
+														<div class="col-span-2">
+															<select name="materialId" class="w-full text-sm rounded border-green-300" required={!isNewMaterialMode[schritt.id]}>
+																<option value="" disabled selected>Material wählen...</option>
+																{#each availableMaterials as m}
+																	<option value={m.id}>{m.name} ({m.einheit})</option>
+																{/each}
+															</select>
+															{#if availableMaterials.length === 0}
+																<p class="text-[10px] text-red-500 mt-1">Liste leer.</p>
+															{/if}
+														</div>
+													{/if}
+													<div>
+														<input type="number" step="0.01" name="menge" placeholder="Menge" class="w-full text-sm rounded border-green-300" required />
+													</div>
+												</div>
+												<div class="flex justify-end gap-2">
+													<button type="button" onclick={() => toggleMaterialRequestForm(schritt.id)} class="text-xs text-gray-500">Abbrechen</button>
+													<button class="bg-green-600 text-white px-3 py-1 text-xs rounded hover:bg-green-700" disabled={!isNewMaterialMode[schritt.id] && availableMaterials.length === 0}>Anfordern</button>
+												</div>
+											</form>
+										</div>
+									{/if}
+								{/if}
+
+								{#if (isInnendienst || isHandwerker) && schritt.pendingUpdates.length > 0}
+									<div class="mb-4 space-y-2">
+										{#each schritt.pendingUpdates as update}
+											<div class="bg-orange-50 border border-orange-200 rounded p-2 text-sm">
+												<div class="flex justify-between items-start mb-1">
+													<span class="font-bold text-orange-800 text-xs uppercase">{getUpdateTypLabel(update.typ)}</span>
+													<span class="text-orange-400 text-xs">{formatDateTime(update.eingereichtAm)}</span>
+												</div>
+												<p class="text-gray-700 text-xs mb-2">Von: {update.bearbeiterName}</p>
+
+												{#if update.typ === 'STATUS_AENDERUNG'}
+													{#if update.neuerStatus}<div class="text-xs">Status: <b>{getStatusLabel(update.neuerStatus)}</b></div>{/if}
+													{#if update.neuerFortschritt}<div class="text-xs">Fortschritt: <b>{update.neuerFortschritt}%</b></div>{/if}
+												{:else if update.typ === 'MATERIAL_ANFORDERUNG'}
+													<div class="text-xs bg-white p-1 rounded border border-orange-100">
+														Anforderung: <b>{update.menge} {update.materialEinheit}</b> {update.materialName}
+													</div>
+												{:else if update.typ === 'NOTIZ'}
+													<div class="bg-white p-1 rounded border border-orange-100 text-xs italic">{update.notizText}</div>
+												{:else if update.typ === 'FOTO_UPLOAD' && update.bild}
+													<img src={update.bild.url} alt="Vorschau" class="h-12 w-12 object-cover rounded" />
+												{/if}
+
+												{#if isInnendienst}
+													<div class="flex gap-2 mt-2">
+														<form action="?/approveUpdate" method="POST" use:enhance><input type="hidden" name="updateId" value={update.id} /><button class="bg-green-600 text-white px-2 py-0.5 rounded text-xs hover:bg-green-700">Genehmigen</button></form>
+														<form action="?/rejectUpdate" method="POST" use:enhance><input type="hidden" name="updateId" value={update.id} /><button class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs hover:bg-red-200">Ablehnen</button></form>
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
 								{/if}
 
 								{#if schritt.beschreibung}<p class="mb-4 text-gray-600">{schritt.beschreibung}</p>{/if}
@@ -174,31 +293,16 @@
 											{#each schritt.material as mat}
 												<div class="inline-flex items-center bg-white px-2 py-1 text-xs border rounded gap-2 shadow-sm">
 													<span class="font-medium text-gray-700">{mat.name}</span>
-
 													{#if editingMaterialId === mat.linkId && !isStepFinished}
-														<form action="?/updateMaterialInStep" method="POST" use:enhance={() => {
-                                                 return async ({ update }) => {
-                                                     await update();
-                                                     cancelEditMaterial();
-                                                 };
-                                             }} class="flex items-center gap-1">
+														<form action="?/updateMaterialInStep" method="POST" use:enhance={() => { return async ({ update }) => { await update(); cancelEditMaterial(); }; }} class="flex items-center gap-1">
 															<input type="hidden" name="linkId" value={mat.linkId} />
-															<input
-																	type="number"
-																	step="0.01"
-																	name="menge"
-																	value={mat.menge}
-																	class="w-16 h-6 text-xs border-gray-300 rounded px-1 py-0"
-																	autofocus
-															/>
+															<input type="number" step="0.01" name="menge" value={mat.menge} class="w-16 h-6 text-xs border-gray-300 rounded px-1 py-0" autofocus />
 															<span class="text-gray-500">{mat.einheit}</span>
-															<button class="text-green-600 hover:text-green-800 bg-green-50 p-0.5 rounded">✓</button>
-															<button type="button" onclick={cancelEditMaterial} class="text-gray-400 hover:text-gray-600 px-1">✕</button>
+															<button class="text-green-600 bg-green-50 p-0.5 rounded">✓</button>
+															<button type="button" onclick={cancelEditMaterial} class="text-gray-400 px-1">✕</button>
 														</form>
-
 													{:else}
 														<span class="text-gray-500">({mat.menge} {mat.einheit})</span>
-
 														{#if canManage && mat.linkId && !isStepFinished}
 															<div class="flex items-center gap-1 ml-1 pl-1 border-l border-gray-200">
 																<button onclick={() => startEditMaterial(mat.linkId!)} class="text-blue-400 hover:text-blue-600 p-0.5">✎</button>

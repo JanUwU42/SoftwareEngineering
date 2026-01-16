@@ -122,7 +122,7 @@ async function main() {
                     // Material hier sollte bereits vom Lager abgezogen sein (logisch betrachtet).
                     // Da wir seeden, simulieren wir den Zustand "Nach Abbuchung".
                     {
-                        titel: 'Vorbereitung (Abgeschlossen)',
+                        titel: 'Vorbereitung',
                         beschreibung: 'Dieser Schritt ist fertig. Material wurde verbraucht.',
                         startDatum: new Date('2025-11-01'),
                         endDatum: new Date('2025-11-02'),
@@ -141,7 +141,7 @@ async function main() {
                     // SCHRITT 2: IN ARBEIT (Reservierung aktiv)
                     // Hier testen wir die Mischkalkulation
                     {
-                        titel: 'Installation (Laufend)',
+                        titel: 'Installation',
                         beschreibung: 'Hier wird Material reserviert.',
                         startDatum: new Date('2025-11-03'),
                         endDatum: new Date('2025-11-10'),
@@ -172,7 +172,7 @@ async function main() {
                     // SCHRITT 3: OFFEN (Reservierung aktiv)
                     // Hier testen wir "Gar nichts da"
                     {
-                        titel: 'Rohrverlegung (Geplant)',
+                        titel: 'Rohrverlegung',
                         startDatum: new Date('2025-11-15'),
                         endDatum: new Date('2025-11-20'),
                         status: 'offen',
